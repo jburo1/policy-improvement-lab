@@ -1,6 +1,6 @@
 # Policy Improvement Lab
 
-During graduate school, I studied actor–critic reinforcement learning and whether a loss comparing the relative ordering of policy and value predictions could improve sample efficiency on benchmark RL envs. Results depended on the configuration and sometimes training failed. This reboot asks a more fundamental question:
+During graduate school, I studied actor–critic reinforcement learning and whether a loss comparing the relative ordering of policy and value predictions could improve sample efficiency on benchmark RL envs. This reboot lives in the same conceptual space but asks a more fundamental question:
 
 **How should an actor use imperfect critic-derived action values to make efficient, stable, and appropriately conservative policy improvements?**
 

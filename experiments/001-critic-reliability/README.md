@@ -1,62 +1,232 @@
-# 001 — Critic reliability
+# 001 — Critic Reliability
 
-**Status: planned.** Milestone 0 validates the implementation and output plumbing only. No full experiment has been conducted and no research results are reported.
 
-## Research question
+## Motivation
 
-How reliably does a learned action-value critic predict the benefit of a full-action policy update along one full-action QAC training trajectory? How do hypothetical learned-guided and exact-guided updates differ at the same checkpoint?
+Actor–critic (AC) reinforcement learning relies on learned value estimates to guide or bootstrap policy improvement. However, during training, these estimates are imperfect, particularly at the beginning when experience is limited and the critic is inaccurate and continually adapting to the changing policy.
+
+Importantly, accurate value estimation and reliable policy improvement are not necessarily equivalent. A critic may exhibit substantial value-prediction error while preserving the relative action preferences needed to improve a policy. Conversely, errors in those preferences may cause the actor to reinforce inferior actions, potentially reducing performance.
+
+This experiment investigates the relationship between **critic estimation quality** and the **reliability of critic-guided policy updates**. By reliability, we mean whether the policy update actually improves the policy.
+
+To this end, we construct a small, exactly evaluable Markov decision process that provides access to the true action values and expected return of any policy. This makes it possible to distinguish errors in the learned critic from their consequences for policy improvement. We start small and, dependent on results, move towards more complicated algorithms.
+
+## Research Question
+
+**How reliably do learned action-value estimates guide beneficial policy improvements, relative to exact action values, in a simple tabular QAC RL training run?**
+
+The investigation focuses on three aspects:
+
+1. **Prediction accuracy:** How accurately does the learned critic predict the improvement produced by its own policy update?
+2. **Update reliability:** How frequently do learned-critic-guided updates increase or decrease true policy performance?
+3. **Critic quality:** How do estimation error and action-ranking accuracy relate to the quality of policy improvements?
 
 ## Methodology
 
-Train `qac_full` on `branching_mdp_v1`: five decision states, three actions, absorbing terminal state, discount 0.95, initial state 0. The actor and Q critic start at zero. Q learning uses on-policy one-step Expected SARSA; the actor uses the frozen pre-transition critic. Exact values never guide committed updates.
+### 1. Experimental Environment
 
-Planned configuration: 5,000 transitions per seed, evaluation every 100 transitions, actor rate 0.20, critic rate 0.12, seeds 0–9. Include the initial and final checkpoints. At each checkpoint, freeze the current policy and learned critic and construct two hypothetical full-action updates at the next visited decision state: one using learned Q and one using exact Q of that policy. Both use the same nominal actor rate and change only that state. Neither is committed.
+The experiment uses `branching_mdp_v1`, a handcrafted finite discounted MDP with stochastic transitions and delayed rewards.
 
-The exporter also retains existing sampled and KL-backtracked candidate diagnostics; filter to `method=qac_full` for this experiment. Only `training_method=qac_full` is trained. Broader operator comparisons, KL sweeps, controlled corruption, and additional MDPs are later work.
+| Property | Configuration |
+|---|---|
+| Environment | `branching_mdp_v1` |
+| Decision states | 5 |
+| Actions per state | 3 |
+| Terminal states | 1 absorbing state |
+| Discount factor | 0.95 |
+| Initial state | State 0 |
+| Reward structure | Transition costs and delayed terminal reward |
+| Reference evaluation | Exact Bellman solution |
 
-## Measurements and planned analysis
+The finite state space permits exact computation of \(Q^\pi(s,a)\) and expected discounted return \(J(\pi)\) for every checkpoint policy.
 
-Use the definitions and checkpoint conventions in the shared [protocol](../../docs/experiment_protocol.md).
+### 2. Learning Algorithm
 
-- Track exact expected return, learned critic RMSE, action-pair ranking accuracy, and action-selection regret.
-- For both full-action candidates, record predicted local gain, true local gain, actual global gain, and realized KL.
-- Analyze learned predicted-minus-true local gain and the frequency of negative global gains (classify gains below `-1e-12` as negative).
-- Compare learned and oracle candidates within `(training_method, seed, step, state, action, method)` pairs. Join to checkpoint records using originating training method, seed, and step; verify the repeated checkpoint return and critic quality match.
-- Summarize within each seed before reporting across-seed mean, sample SD, and individual seed values. Checkpoints and paired candidates are not independent replicates.
-- Inspect relationships between critic quality and prediction errors descriptively. Do not interpret associations as causal effects.
+Training uses a tabular **full-action Q Actor–Critic (QAC)** learner.
 
-The exact single-state performance-difference identity and learned/oracle separation are tested implementation invariants. They are not empirical hypotheses to be established from plots.
+The critic estimates action values using on-policy one-step Expected SARSA. The actor performs gradient ascent on the expected action value under the current policy:
+
+\[
+\theta_{s,a} \leftarrow \theta_{s,a} +
+\alpha \pi(a|s)
+\left[
+\hat Q(s,a) -
+\sum_b \pi(b|s)\hat Q(s,b)
+\right].
+\]
+
+Both actor and critic updates use the policy and critic estimates from before the current transition's learning updates.
+
+| Parameter | Configuration |
+|---|---|
+| Training method | `qac_full` |
+| Policy representation | Tabular softmax logits |
+| Critic representation | Tabular action values |
+| Critic update | One-step Expected SARSA |
+| Actor learning rate | 0.20 |
+| Critic learning rate | 0.12 |
+| Initialization | Zero actor logits and critic values |
+| Training duration | 5,000 environment transitions per seed |
+| Checkpoint interval | 100 transitions |
+| Random seeds | 0–9 |
+
+Checkpoints include step 0 and the final training step. Checkpoint \(k\) represents the actor and critic after \(k\) completed transitions and learning updates.
+
+### 3. Counterfactual Policy Updates
+
+At each checkpoint, the current policy and learned critic are frozen.
+
+Two hypothetical full-action QAC updates are constructed at the checkpoint's next decision state.
+
+| Condition | Learned guidance | Oracle guidance |
+|---|---|---|
+| Starting policy | Current checkpoint policy | Identical |
+| Update operator | Full-action QAC | Full-action QAC |
+| Critic guidance | Learned \(\hat Q\) | Exact \(Q^\pi\) |
+| Actor learning rate | 0.20 | 0.20 |
+| Updated states | One | Same state |
+| Training impact | None | None |
+
+Both candidates are evaluated against the same starting policy. Neither candidate is committed to training.
+
+This paired comparison isolates the difference between learned and exact critic guidance at a fixed checkpoint, although their resulting update magnitudes may differ.
+
+The exact critic is a diagnostic reference, not a separately trained learner or a guarantee of optimal finite-step improvement.
+
+### 4. Measurements
+
+Three categories of measurements characterize critic quality and policy-improvement reliability.
+
+**Critic quality**
+
+| Metric | Description |
+|---|---|
+| RMSE | Error between learned and exact action values |
+| Action-ranking accuracy | Fraction of eligible action pairs correctly ordered by the learned critic |
+| Action-selection regret | True value lost by selecting the learned critic's preferred action rather than the optimal action |
+
+Critic-quality measurements are calculated uniformly over decision states and actions rather than weighted by visitation frequency.
+
+**Candidate update quality**
+
+| Metric | Description |
+|---|---|
+| Predicted local gain | Estimated improvement under the guidance critic |
+| True local gain | Local improvement evaluated using exact action values |
+| Actual performance gain | Change in exact expected return, \(J(\pi')-J(\pi)\) |
+| Realized state KL | \(D_{\mathrm{KL}}(\pi'(\cdot\mid s)\|\pi(\cdot\mid s))\) |
+
+**Training performance**
+
+| Metric | Description |
+|---|---|
+| Expected return | Exact discounted return of the trained policy at each checkpoint |
+| Training progress | Number of completed environment transitions |
+
+All measurements follow the definitions in the [shared experimental protocol](../../docs/experiment_protocol.md).
+
+### 5. Analysis
+
+The primary analysis compares learned-guided and oracle-guided candidate updates at matched checkpoints.
+
+| Analysis | Purpose |
+|---|---|
+| Predicted versus true local gain | Characterize the accuracy of the learned critic's improvement predictions |
+| Negative performance gain frequency | Quantify the occurrence of detrimental learned-guided updates |
+| Paired learned/oracle performance gain | Measure differences in realized improvement under learned versus exact guidance |
+| Critic quality versus update error | Examine relationships between critic estimation quality and improvement reliability |
+| Expected return over training | Contextualize the evolution of the learner |
+
+A performance gain below `-1e-12` is classified as negative to avoid treating numerical noise as a performance decrease.
+
+Learned and oracle candidates are paired using their originating training method, seed, checkpoint step, state, action, and candidate operator. Only `qac_full` training runs and `qac_full` candidates are included in the primary analysis.
+
+Measurements are summarized within each seed before computing across-seed means and sample standard deviations. Checkpoints are repeated observations from the same training trajectory and are not treated as independent experimental replicates.
+
+Associations between critic quality and update performance are descriptive rather than causal.
 
 ## Reproduction
 
-Run from the repository root with uv installed:
+The following commands reproduce the experiment's raw measurements and currently implemented visualizations.
 
-```sh
-uv sync --locked --python 3.11 --extra dev --extra analysis
-uv run --locked ruff check .
-uv run --locked pytest -q
+**Requirements:** Python 3.11 and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+
+Run from the repository root.
+
+### 1. Install dependencies
+
+```bash
+uv sync --locked --python 3.11 --extra analysis
 ```
 
-The following commands are the **planned full Milestone 1 run**, not part of the Milestone 0 smoke check. Use a clean working tree or preserve its patch alongside the recorded revision. Keep `uv.lock` at that revision and record the Python/uv versions with retained results.
+### 2. Run the experiment
 
-```sh
+```bash
 git rev-parse HEAD > experiments/001-critic-reliability/data/source_revision.txt
-uv run --locked policy-lab --methods qac_full --steps 5000 --eval-every 100 --actor-lr 0.20 --critic-lr 0.12 --seeds 0 1 2 3 4 5 6 7 8 9 --out-dir experiments/001-critic-reliability/data
-uv run --locked policy-lab-plot experiments/001-critic-reliability/data --out-dir experiments/001-critic-reliability/analysis
+
+uv run --locked policy-lab \
+  --methods qac_full \
+  --steps 5000 \
+  --eval-every 100 \
+  --actor-lr 0.20 \
+  --critic-lr 0.12 \
+  --seeds 0 1 2 3 4 5 6 7 8 9 \
+  --out-dir experiments/001-critic-reliability/data
 ```
 
-`data/` receives `config.json`, `checkpoints.csv`, and `counterfactual_updates.csv`; the revision file identifies the source. The stored KL limit is unused by the primary full-action operator. `analysis/` receives four PNGs, including `learned_vs_oracle_gain.png` for the primary paired comparison. The two other candidate scatter plots include supplementary operators and must not be presented as experiment 001's primary analysis. Additional seed-level tables and written analysis are to be produced during Milestone 1 using these CSVs and the rules above. Do not mix outputs from different configurations in one directory; the commands overwrite matching filenames.
+The training command records checkpoint metrics and counterfactual update measurements.
 
-For a short smoke run, use the [main README commands](../../README.md#setup-and-verification), which write under ignored `artifacts/smoke/` and do not populate research results.
+### 3. Generate visualizations
+
+```bash
+uv run --locked policy-lab-plot \
+  experiments/001-critic-reliability/data \
+  --out-dir experiments/001-critic-reliability/analysis
+```
+
+### Outputs
+
+| File | Contents |
+|---|---|
+| `data/config.json` | Experimental configuration |
+| `data/source_revision.txt` | Git revision used for the run |
+| `data/checkpoints.csv` | Training return and critic-quality measurements |
+| `data/counterfactual_updates.csv` | Candidate update measurements |
+| `analysis/learning_curves.png` | Training performance |
+| `analysis/learned_vs_oracle_gain.png` | Paired learned/oracle comparison |
+
+The generic plotting command also generates `predicted_vs_true_gain.png` and `update_kl_vs_improvement.png`. Those figures include additional diagnostic operators emitted by the shared exporter and are not restricted to Experiment 001's primary comparison.
+
+The complete seed-level statistical analysis is not yet automated. The commands above reproduce the underlying measurements and existing figures, rather than a finalized set of statistical results.
+
+For implementation tests and repository-wide verification, see [Setup and verification](../../README.md#setup-and-verification).
+
+**Reproducibility:** The recorded revision identifies the committed source code. Execute the experiment from a clean working tree, preserve the corresponding `uv.lock`, and retain the complete configuration and all seed results. Reusing the output directory overwrites existing CSVs and figures.
 
 ## Results
 
-Pending. No generated research measurements or analyses are committed. A successful smoke run establishes execution and file generation only.
+**Analysis in progress.**
+
+No completed experimental results are currently committed to the repository.
+
+Results and visualizations will be included here as the analysis is completed.
 
 ## Interpretation
 
-Pending measurements. An oracle-guided finite step is a reference comparison, not a guaranteed upper bound on realized return improvement. Zero or negative findings should be reported with the same settings and provenance as positive findings.
+Interpretation is reserved for the observed measurements.
+
+In particular, differences between learned-guided and oracle-guided updates must be considered alongside their realized KL divergence, since identical actor learning rates do not guarantee identical update magnitudes.
+
+For these single-state updates, the exact performance-difference identity connects true local gain with global performance change. The relationship is an implementation invariant, not an independent empirical finding.
 
 ## Limitations
 
-One handcrafted tabular MDP, one learner, and fixed rates limit generality. Visited checkpoint states and repeated measurements are dependent. Critic quality is uniformly weighted, whereas training is visitation weighted. Learned and exact guidance can yield different update sizes at the same actor rate; this experiment does not isolate direction from step size. Exact expected discounted return does not measure empirical return variance. Neural approximation, matched-KL comparisons, critic corruption, and causal claims are outside the initial scope.
+This experiment examines one tabular learner operating on one handcrafted MDP. Its conclusions do not directly generalize to neural function approximation or larger environments.
+
+Critic-quality measurements are uniformly weighted, while candidate updates occur at states visited along training trajectories. Consequently, aggregate critic quality may not represent estimation quality at the states most relevant to learning.
+
+Learned and oracle candidates use identical nominal learning rates but can have different realized KL divergences. The experiment therefore does not independently isolate update direction from update magnitude.
+
+Repeated checkpoints are statistically dependent, and the experiment does not establish causal relationships between critic quality and update performance.
+
+Controlled critic corruption, matched-KL comparisons, and additional environments are outside Experiment 001's scope.
