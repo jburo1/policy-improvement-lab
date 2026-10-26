@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "policy-improvement-lab"
+version = "0.1.0"
+description = "Controlled experiments on policy improvement with imperfect value critics"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.7"]
+analysis = ["pandas>=2.0", "seaborn>=0.13", "matplotlib>=3.7"]
+
+[project.scripts]
+policy-lab = "policy_improvement_lab.cli:main"
+policy-lab-plot = "policy_improvement_lab.plot:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
