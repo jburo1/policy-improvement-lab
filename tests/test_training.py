@@ -27,7 +27,13 @@ def test_smoke_and_reproducibility():
                     assert case[metric] == checkpoint[metric]
         checkpoints_2, diagnostics_2 = train(mdp, method, 7, cfg)
         assert checkpoints == checkpoints_2
-        assert diagnostics == diagnostics_2
+        assert len(diagnostics) == len(diagnostics_2)
+        for first, second in zip(diagnostics, diagnostics_2, strict=True):
+            for key in first:
+                if isinstance(first[key], str):
+                    assert first[key] == second[key]
+                else:
+                    assert first[key] == pytest.approx(second[key], rel=0, abs=0, nan_ok=True)
 
 
 @pytest.mark.parametrize("method", QAC_METHODS)

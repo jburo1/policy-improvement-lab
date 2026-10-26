@@ -1,8 +1,27 @@
+from itertools import product
+
 import numpy as np
 import pytest
 
 from policy_improvement_lab.mdp import FiniteMDP, make_branching_mdp
 from policy_improvement_lab.operators import softmax
+
+
+def test_optimal_return_matches_exhaustive_deterministic_policy_evaluation():
+    mdp = make_branching_mdp()
+    returns = []
+    for actions in product(range(mdp.n_actions), repeat=len(mdp.active_states)):
+        policy = np.eye(mdp.n_actions)[list(actions) + [0]]
+        returns.append(mdp.performance(policy))
+    assert mdp.optimal_performance() == pytest.approx(max(returns), abs=1e-12)
+
+
+@pytest.mark.parametrize("gamma", [0., .8, .99])
+def test_optimal_return_closed_form_with_looping_and_terminating_actions(gamma):
+    transition = np.array([[[.5, .5], [1., 0]], [[0, 1], [0, 1]]])
+    reward = np.array([[[2., 2.], [.1, 0]], [[0, 0], [0, 0]]])
+    mdp = FiniteMDP(transition, reward, np.array([.7, .3]), gamma=gamma, terminal_state=1)
+    assert mdp.optimal_performance() == pytest.approx(.7 * max(2 / (1 - .5 * gamma), .1 / (1 - gamma)))
 
 
 def test_exact_policy_evaluation_satisfies_bellman_equations():

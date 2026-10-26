@@ -6,6 +6,14 @@ During graduate school, I studied actor–critic reinforcement learning and whet
 
 The following experiments investigate this.
 
+The research progression I have in mind is the following:
+
+First: Establish whether and when critic errors lead to poor policy improvements.
+
+Second: Understand which aspects of critic error are responsible.
+
+Third: Investigate whether we can design actor updates that are more robust to those errors.
+
 ## Experiments
 
 | Experiment | Status | Scope |

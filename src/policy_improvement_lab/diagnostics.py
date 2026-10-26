@@ -8,6 +8,32 @@ from numpy.typing import NDArray
 from .mdp import FiniteMDP
 from .operators import QAC_METHODS, Method, kl_new_old, softmax, update_logits
 
+GRADIENT_ZERO_TOLERANCE = 1e-12
+
+
+@dataclass(frozen=True)
+class GradientAlignment:
+    learned_gradient_norm: float
+    oracle_gradient_norm: float
+    gradient_cosine_similarity: float
+
+
+def gradient_alignment(
+    probabilities: NDArray[np.float64], learned_q: NDArray[np.float64], exact_q: NDArray[np.float64],
+) -> GradientAlignment:
+    """Compare full-action logit gradients at one state, without a learning rate.
+
+    Cosine is undefined (NaN) if either norm is <= 1e-12. Keep both norms so
+    an absent direction is distinguishable from orthogonal directions.
+    """
+    learned = probabilities * (learned_q - float(probabilities @ learned_q))
+    oracle = probabilities * (exact_q - float(probabilities @ exact_q))
+    learned_norm, oracle_norm = float(np.linalg.norm(learned)), float(np.linalg.norm(oracle))
+    cosine = float("nan")
+    if min(learned_norm, oracle_norm) > GRADIENT_ZERO_TOLERANCE:
+        cosine = float(np.clip((learned / learned_norm) @ (oracle / oracle_norm), -1, 1))
+    return GradientAlignment(learned_norm, oracle_norm, cosine)
+
 
 @dataclass(frozen=True)
 class CriticQuality:
@@ -61,6 +87,7 @@ def counterfactual_updates(
     old_j = mdp.performance(old_pi)
     _, q_true = mdp.exact_values(old_pi)
     quality = critic_quality(mdp, critic_q, q_true)
+    alignment = gradient_alignment(old_pi[state], critic_q[state], q_true[state])
     records: list[dict[str, str | float | int]] = []
     for source, guidance in (("learned", critic_q), ("oracle", q_true)):
         for method in QAC_METHODS:
@@ -86,5 +113,6 @@ def counterfactual_updates(
                 "state_kl": kl_new_old(new_pi[state], old_pi[state]),
                 "max_state_kl": float(max(kls)),
                 **asdict(quality),
+                **asdict(alignment),
             })
     return records

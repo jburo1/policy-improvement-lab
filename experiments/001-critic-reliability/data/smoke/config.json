@@ -1,0 +1,18 @@
+{
+  "run_config": {
+    "steps": 600,
+    "eval_every": 100,
+    "actor_lr": 0.2,
+    "critic_lr": 0.12,
+    "kl_limit": 0.002
+  },
+  "methods": [
+    "qac_full"
+  ],
+  "seeds": [
+    0,
+    1
+  ],
+  "environment": "branching_mdp_v1",
+  "implementation": "tabular"
+}

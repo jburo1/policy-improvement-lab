@@ -75,6 +75,17 @@ class FiniteMDP:
         value, _ = self.exact_values(policy)
         return float(self.initial_distribution @ value)
 
+    def optimal_performance(self) -> float:
+        """Diagnostic J*: policy iteration with exact Bellman policy evaluation."""
+        policy = np.full((self.n_states, self.n_actions), 1 / self.n_actions)
+        while True:
+            value, q_value = self.exact_values(policy)
+            # Only the optimality check has a numerical tolerance; the returned
+            # value comes from a linear solve, not truncated value iteration.
+            if np.max(q_value.max(axis=1) - value) <= 1e-12:
+                return float(self.initial_distribution @ value)
+            policy = np.eye(self.n_actions)[np.argmax(q_value, axis=1)]
+
 
 def make_branching_mdp() -> FiniteMDP:
     """Five decision states, three actions, stochastic routes, delayed payoff.
