@@ -67,3 +67,22 @@ inspect -> implement -> verify -> report
 - State what changed, what was verified, and any material limitations or unresolved issues.
 - Separate facts established by inspection or testing from inferences and recommendations.
 - Prefer a direct solution and clear evidence over elaborate plans or lengthy self-justification.
+
+## Scientific Correctness
+
+- Preserve the mathematical meaning of implemented algorithms,
+  objectives, and measurements. Do not silently change learning
+  or experimental semantics.
+- Use exact MDP values only for evaluation and diagnostics,
+  never to guide learning unless explicitly implementing
+  an oracle control.
+- Make experimental comparisons controlled and interpretable.
+  Preserve the information needed to identify training runs,
+  checkpoints, and compared methods.
+- Freeze policy and critic states for paired comparisons; state
+  whether checkpoint measurements precede or follow learning updates.
+- Test important mathematical properties directly rather than
+  relying only on training outcomes or plausible plots.
+- Distinguish observed results from hypotheses and interpretations.
+  Never modify algorithms or experimental data merely to
+  produce expected results.

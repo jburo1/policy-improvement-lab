@@ -11,7 +11,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v7
         with:
           version: '0.9.27'
       - name: Sync dependencies
@@ -21,6 +21,8 @@ jobs:
       - name: Test
         run: uv run --locked pytest -q
       - name: Smoke test
-        run: uv run --locked policy-lab --steps 100 --eval-every 50 --seeds 0 --out-dir artifacts/ci
+        run: >-
+          uv run --locked policy-lab --methods qac_full --steps 100 --eval-every 50
+          --seeds 0 --out-dir artifacts/ci/data
       - name: Plot smoke test
-        run: uv run --locked policy-lab-plot artifacts/ci
+        run: uv run --locked policy-lab-plot artifacts/ci/data --out-dir artifacts/ci/analysis

@@ -33,6 +33,7 @@ def train(mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig) -> tuple[li
     * Reference Q^pi is used for analysis, never for actual learning.
     """
     rng = np.random.default_rng(seed)
+    diagnostic_rng = np.random.default_rng(np.random.SeedSequence([seed, 1]))
     logits = np.zeros((mdp.n_states, mdp.n_actions), dtype=np.float64)
     q_hat = np.zeros_like(logits)
     v_hat = np.zeros(mdp.n_states, dtype=np.float64)
@@ -41,11 +42,18 @@ def train(mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig) -> tuple[li
     update_metrics: list[dict] = []
 
     def checkpoint(step: int) -> None:
+        # Step k describes both parameter tables after k completed transitions.
+        # Diagnostic sampling never consumes the learner's random stream.
         p = softmax(logits)
         record = {"seed": seed, "step": step, "method": method, "expected_return": mdp.performance(p)}
         if method != "ac_td0":
             _, true_q = mdp.exact_values(p)
             record.update(vars(critic_quality(mdp, q_hat, true_q)))
+            action = int(diagnostic_rng.choice(mdp.n_actions, p=p[state]))
+            update_metrics.extend(counterfactual_updates(
+                mdp, logits, q_hat, state, action, cfg.actor_lr, cfg.kl_limit, seed, step,
+                training_method=method,
+            ))
         trajectory_metrics.append(record)
 
     checkpoint(0)
@@ -57,23 +65,19 @@ def train(mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig) -> tuple[li
         if method == "ac_td0":
             td_target = reward + (0 if done else mdp.gamma * v_hat[next_state])
             td_error = td_target - v_hat[state]
-            v_hat[state] += cfg.critic_lr * td_error
             logits = update_logits(
                 logits, state, "ac_td0", action, q_hat, cfg.actor_lr, cfg.kl_limit,
                 td_advantage=td_error,
             )
+            v_hat[state] += cfg.critic_lr * td_error
         else:
             expected_next = 0 if done else float(p[next_state] @ q_hat[next_state])
             td_target = reward + mdp.gamma * expected_next
             td_error = td_target - q_hat[state, action]
-            q_hat[state, action] += cfg.critic_lr * td_error
-            if step % cfg.eval_every == 0:
-                update_metrics.extend(
-                    counterfactual_updates(
-                        mdp, logits, q_hat, state, action, cfg.actor_lr, cfg.kl_limit, seed, step
-                    )
-                )
+            # Both updates read the pre-transition policy and critic. In particular,
+            # the sampled actor must not reuse a Q estimate fitted to this action.
             logits = update_logits(logits, state, method, action, q_hat, cfg.actor_lr, cfg.kl_limit)
+            q_hat[state, action] += cfg.critic_lr * td_error
 
         state = int(rng.choice(mdp.n_states, p=mdp.initial_distribution)) if done else next_state
         if step % cfg.eval_every == 0 or step == cfg.steps:

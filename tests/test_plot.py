@@ -24,10 +24,17 @@ def test_plot_statistics_and_candidate_filtering(tmp_path, monkeypatch):
         {"method": "ac_td0", "step": 0, "seed": 0, "expected_return": 3},
     ])
     write_csv(tmp_path / "counterfactual_updates.csv", [
-        {"method": "qac_full", "critic_source": source, "predicted_local_gain": value,
+        {"method": "qac_full", "training_method": origin, "seed": 0,
+         "step": step, "state": 0, "action": 0,
+         "critic_source": source, "predicted_local_gain": value,
          "true_local_gain": value * 2, "state_kl": value / 100,
          "actual_performance_gain": -value}
-        for source, value in (("learned", 1), ("learned", 2), ("oracle", 99))
+        for origin, step, source, value in (
+            ("qac_full", 0, "learned", 1), ("qac_full", 10, "learned", 2),
+            ("qac_full", 0, "oracle", 99), ("qac_full", 10, "oracle", 98),
+            # Identical seed/step/state/action from another learner must stay a separate pair.
+            ("qac_sampled", 0, "learned", 7), ("qac_sampled", 0, "oracle", 8),
+        )
     ])
     figures = {}
     savefig = Figure.savefig
@@ -37,14 +44,18 @@ def test_plot_statistics_and_candidate_filtering(tmp_path, monkeypatch):
         savefig(fig, path, **kwargs)
 
     monkeypatch.setattr(Figure, "savefig", capture)
-    monkeypatch.setattr(sys, "argv", ["policy-lab-plot", str(tmp_path)])
+    output = tmp_path / "analysis"
+    monkeypatch.setattr(sys, "argv", ["policy-lab-plot", str(tmp_path), "--out-dir", str(output)])
     main()
 
     assert set(figures) == {
         "learning_curves.png", "predicted_vs_true_gain.png", "update_kl_vs_improvement.png",
+        "learned_vs_oracle_gain.png",
     }
     for name in figures:
-        assert (tmp_path / name).stat().st_size > 0
+        assert (output / name).stat().st_size > 0
+        assert not (tmp_path / name).exists()
+    assert not list(output.glob("*.csv"))
 
     curves = figures["learning_curves.png"].axes[0]
     lines = {line.get_label(): line for line in curves.lines}
@@ -60,9 +71,11 @@ def test_plot_statistics_and_candidate_filtering(tmp_path, monkeypatch):
 
     gain = figures["predicted_vs_true_gain.png"].axes[0]
     kl = figures["update_kl_vs_improvement.png"].axes[0]
-    np.testing.assert_allclose(gain.collections[0].get_offsets(), [[1, 2], [2, 4]])
-    np.testing.assert_allclose(kl.collections[0].get_offsets(), [[0.01, -1], [0.02, -2]])
+    np.testing.assert_allclose(gain.collections[0].get_offsets(), [[1, 2], [2, 4], [7, 14]])
+    np.testing.assert_allclose(kl.collections[0].get_offsets(), [[0.01, -1], [0.02, -2], [0.07, -7]])
     for ax in (gain, kl):
         np.testing.assert_allclose(
             ax.collections[0].get_facecolors()[0, :3], lines[METHOD_LABELS["qac_full"]].get_color(),
         )
+    comparison = figures["learned_vs_oracle_gain.png"].axes[0]
+    np.testing.assert_allclose(comparison.collections[0].get_offsets(), [[-1, -99], [-2, -98], [-7, -8]])

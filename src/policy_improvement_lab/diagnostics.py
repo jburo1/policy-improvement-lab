@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .mdp import FiniteMDP
-from .operators import QAC_METHODS, kl_new_old, softmax, update_logits
+from .operators import QAC_METHODS, Method, kl_new_old, softmax, update_logits
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,8 @@ def counterfactual_updates(
     kl_limit: float,
     seed: int,
     step: int,
+    *,
+    training_method: Method,
 ) -> list[dict[str, str | float | int]]:
     """Compare candidate actor updates from the *same* policy and critic.
 
@@ -72,6 +74,8 @@ def counterfactual_updates(
             records.append({
                 "seed": seed,
                 "step": step,
+                "training_method": training_method,
+                "checkpoint_expected_return": old_j,
                 "state": state,
                 "action": action,
                 "method": method,

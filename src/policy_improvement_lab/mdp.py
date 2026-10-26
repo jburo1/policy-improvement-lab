@@ -34,6 +34,12 @@ class FiniteMDP:
             raise ValueError("gamma must be in [0,1)")
         if self.terminal_state >= s or self.terminal_state < 0:
             raise ValueError("Invalid terminal state")
+        terminal = np.zeros(s)
+        terminal[self.terminal_state] = 1
+        if not np.array_equal(self.transition[self.terminal_state], np.tile(terminal, (a, 1))):
+            raise ValueError("Terminal state must be absorbing")
+        if not np.isfinite(self.reward).all() or np.any(self.reward[self.terminal_state] != 0):
+            raise ValueError("Rewards must be finite and zero after termination")
 
     @property
     def n_states(self) -> int:

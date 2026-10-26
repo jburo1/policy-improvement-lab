@@ -1,28 +1,51 @@
 # Policy Improvement Lab
 
-During graduate school, I studied actor-critic deep reinforcement learning architectures and investigated whether an auxiliry loss term which directly compares policy and value funtion output would allow such algorithms to achieve comparable performance on benchmark RL tasks with less experiential data. The results showed that algorithms which incorporate a concordance term which evaluates the relative ordering of policy and value predictions can improve sample efficiency in certain configurations, however, the method was not fully generalizable and in certain cases caused training to fail. This reboot takes a more principled approach towards policy improvement analysis in ac architectures, and investigates a more fundamental question:
+During graduate school, I studied actor–critic reinforcement learning and whether a loss comparing the relative ordering of policy and value predictions could improve sample efficiency. Results depended on the configuration and sometimes training failed. This reboot asks a more fundamental question:
 
-**Research question:** How should an actor use imperfect critic-derived action values to make efficient, stable, and appropriately conservative policy improvements?
+**How should an actor use imperfect critic-derived action values to make efficient, stable, and appropriately conservative policy improvements?**
 
-The first milestone is a **tabular, exactly evaluable** MDP, not a new RL algorithm or a general-purpose framework. It compares online one-step actor–critic (A2C-style), sampled-action QAC, full-action QAC, and a KL-backtracked full-action QAC baseline.
+Milestone 0 establishes a tested, exactly evaluable tabular foundation. The first planned experiment follows **one full-action QAC learner** and compares hypothetical full-action improvements guided by its learned critic versus exact values at the same checkpoints. It makes no empirical claims yet.
 
-## What is implemented
+## Setup and verification
 
-- A stochastic finite discounted MDP with **five decision states, three actions, and an absorbing terminal state**.
-- Exact policy evaluation with the Bellman equations, providing reference \(V^\pi\), \(Q^\pi\), and performance \(J(\pi)\).
-- One-step online actor–critic (`ac_td0`) with a tabular state-value critic.
-- QAC with a tabular action-value critic trained with on-policy one-step **Expected SARSA**.
-- Three QAC actor operators: sampled-action gradient, exact action expectation, and full-action gradient with per-state KL backtracking.
-- Same-checkpoint counterfactual actor updates using a **frozen learned critic** or an **oracle/exact critic for diagnosis only**.
-- Critic RMSE, action-ranking accuracy, action-selection regret, predicted local gain, true local gain, actual return improvement, and realized KL.
-- Seeded experiments, CSV outputs, tests, and GitHub Actions CI.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then from the repository root:
 
-## Research goals, not claims
+```sh
+uv sync --locked --python 3.11 --extra dev --extra analysis
+uv run --locked ruff check .
+uv run --locked pytest -q
+```
 
-1. Characterize whether an imperfect learned critic mispredicts the effects of actor updates.
-2. Compare the variance and reliability of sampled-action and full-action policy improvements.
-3. Investigate whether restricting actor-update size reduces negative effects of critic approximation errors, and at what efficiency cost.
-4. Test controlled critic corruption before designing new methods for estimating critic reliability.
+The committed `uv.lock` fixes dependency resolution. CI uses Python 3.11 and uv 0.9.27. Training requires NumPy; the analysis extra supplies Pandas, Seaborn, and Matplotlib. No external RL environment is needed.
+
+A short plumbing check, **not a research experiment**:
+
+```sh
+uv run --locked policy-lab --methods qac_full --steps 100 --eval-every 50 --seeds 0 --out-dir artifacts/smoke/data
+uv run --locked policy-lab-plot artifacts/smoke/data --out-dir artifacts/smoke/analysis
+```
+
+Training writes `checkpoints.csv`, `counterfactual_updates.csv`, and `config.json`. Plotting reads the data directory and writes PNGs to `--out-dir` (defaults to the input directory for compatibility). Commands overwrite matching output files; use a fresh directory per configuration. Keep the source revision and lockfile with any retained research results.
+
+## Experiments
+
+| Experiment | Status | Scope |
+| --- | --- | --- |
+| [001: Critic reliability](experiments/001-critic-reliability/README.md) | Planned | One full-action QAC learner; paired learned/exact critic diagnostics |
+
+Each experiment contains its question, protocol, commands, results status, and limitations. Generated measurements and configuration belong in its `data/` directory; visualizations and analysis belong in `analysis/`. Algorithms and plotting remain shared in `src/`.
+
+## Implemented foundation
+
+- Five decision states, three actions, and an absorbing, zero-reward terminal state.
+- Exact Bellman policy evaluation for reference values and expected discounted return.
+- Tabular one-step online actor–critic (`ac_td0`) and Expected-SARSA QAC.
+- Sampled-action, full-action, and KL-backtracked full-action QAC operators. Broader comparisons are later work; the backtracked operator is not TRPO or MPO.
+- Actor updates read the pre-transition critic. Checkpoint diagnostics compare frozen policy/critic pairs after a stated number of completed transitions.
+- Counterfactual candidates never change the learner; exact oracle values are diagnostic only. A separate diagnostic random stream leaves seeded training independent of measurement frequency.
+- Critic error, ranking accuracy, selection regret, local gains, exact global gain, and realized KL, with tests of mathematical identities and provenance.
+
+See the [experiment protocol](docs/experiment_protocol.md) for definitions and the [roadmap](docs/roadmap.md) for subsequent work.
 
 ## Prior work
 

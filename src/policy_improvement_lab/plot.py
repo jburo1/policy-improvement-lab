@@ -14,6 +14,7 @@ METHOD_LABELS = {
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot policy-lab experiment outputs")
     parser.add_argument("results_dir", type=Path)
+    parser.add_argument("--out-dir", type=Path, help="Visualization directory (default: results_dir)")
     args = parser.parse_args()
 
     try:
@@ -30,9 +31,10 @@ def main() -> None:
     colors = dict(zip(
         METHOD_LABELS, sns.color_palette("colorblind", n_colors=len(METHOD_LABELS)), strict=True,
     ))
-    output = args.results_dir
-    checkpoints = pd.read_csv(output / "checkpoints.csv")
-    updates = pd.read_csv(output / "counterfactual_updates.csv")
+    output = args.out_dir or args.results_dir
+    output.mkdir(parents=True, exist_ok=True)
+    checkpoints = pd.read_csv(args.results_dir / "checkpoints.csv")
+    updates = pd.read_csv(args.results_dir / "counterfactual_updates.csv")
     summary = (
         checkpoints.groupby(["method", "step"])["expected_return"]
         .agg(mean="mean", std="std")
@@ -96,6 +98,30 @@ def main() -> None:
     ax.legend(title="Method")
     fig.tight_layout()
     fig.savefig(output / "update_kl_vs_improvement.png", dpi=160)
+    plt.close(fig)
+
+    # Pair by origin, not merely by candidate method: different learners can
+    # reach different policies at the same seed and step.
+    full = updates.loc[updates["method"] == "qac_full"]
+    paired = full.pivot(
+        index=["training_method", "seed", "step", "state", "action"],
+        columns="critic_source", values="actual_performance_gain",
+    ).reset_index()
+    fig, ax = plt.subplots(figsize=(7, 6))
+    sns.scatterplot(
+        data=paired, x="learned", y="oracle", hue="training_method", palette=colors,
+        s=15, alpha=0.5, linewidth=0, ax=ax,
+    )
+    ax.axhline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
+    ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
+    ax.set(
+        xlabel="Exact change in J: learned-guided update",
+        ylabel="Exact change in J: oracle-guided update",
+        title="Paired full-action candidates at the same checkpoint",
+    )
+    ax.legend(title="Originating learner")
+    fig.tight_layout()
+    fig.savefig(output / "learned_vs_oracle_gain.png", dpi=160)
     plt.close(fig)
     print(f"Plots saved in {output.resolve()}")
 
