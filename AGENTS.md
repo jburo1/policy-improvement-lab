@@ -86,3 +86,10 @@ inspect -> implement -> verify -> report
 - Distinguish observed results from hypotheses and interpretations.
   Never modify algorithms or experimental data merely to
   produce expected results.
+
+## Version control
+- When explicitly instructed to commit changes, use the Conventional
+  Commits format: `type(scope): concise imperative description`.
+  Common types include `feat`, `fix`, `refactor`, `test`, `docs`,
+  `chore`, and `ci`. Omit the scope when unnecessary. Keep commit
+  messages accurate and focused on the changes made.
