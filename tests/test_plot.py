@@ -132,11 +132,11 @@ def test_plot_statistics_and_candidate_filtering(tmp_path, monkeypatch):
     np.testing.assert_allclose(quality[1].lines[0].get_ydata(), [.5, .55, .5])
     np.testing.assert_allclose(quality[2].lines[0].get_ydata(), [.2, .25, .2])
     alignment = figures["gradient_alignment_over_training.png"].axes
+    assert len(alignment) == 1
     np.testing.assert_allclose(alignment[0].lines[0].get_ydata(), [np.nan, .5, .5], equal_nan=True)
-    np.testing.assert_allclose(alignment[1].lines[0].get_ydata(), [0, 1, 1])
     prediction = figures["prediction_error_over_training.png"].axes
+    assert len(prediction) == 1
     np.testing.assert_allclose(prediction[0].lines[0].get_xydata(), [[0, -1], [10, -3], [1000, -3]])
-    np.testing.assert_allclose(prediction[1].lines[0].get_ydata(), [1, 5, 3])
 
     harmful = figures["harmful_update_frequency.png"].axes[0]
     # Seed 0: 1/2 harmful in the first bin, seed 1: 0/1. Equal seed weights give 1/4, not 1/3.

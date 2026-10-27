@@ -13,7 +13,7 @@ To this end, we construct a small, exactly evaluable Markov decision process tha
 
 ## Research Question
 
-**What characteristics of the learned critic are important for reliable policy updates in a simple tabular QAC RL training run?**
+**How does critic estimation quality relate to the reliability and effectiveness of policy improvements in a simple tabular QAC setting?**
 
 ## Methodology
 
@@ -125,8 +125,6 @@ Three categories of measurements characterize critic quality and policy-improvem
 | Training progress | Number of completed environment transitions |
 | Optimal expected return | Exact optimal MDP return $J^*$ as a convergence reference |
 
-All measurements follow the definitions in the [shared experimental protocol](../../docs/experiment_protocol.md).
-
 ### 5. Analysis
 
 The analysis compares learned-guided and oracle-guided candidate updates at matched checkpoints.
@@ -154,13 +152,13 @@ The analysis compares learned-guided and oracle-guided candidate updates at matc
 | Mean learned-guided performance gain | 0.000202 |
 | Mean oracle-guided performance gain | 0.000258 |
 
-In this simple MDP environment, the QAC learner converged to the optimal policy well within the 5000 environment interaction budget. The mean gradient cosine similarity between the learner and the oracle was 0.9817, indicating strong gradient alignment. All of the counterfactual critic-guided policy updates showed either improvement or no effect for the policy in this setting. We observe the mean oracle guided policy performance gain across all counterfactual updates is approximately 27% greater than the critic guided policy updates.
+In this simple MDP environment, the QAC learner converged to the optimal policy well within the 5000 environment interaction budget. The mean gradient cosine similarity between the learner and the oracle critics was 0.9817, indicating strong gradient alignment. All of the counterfactual critic-guided policy updates showed either improvement or no effect for the policy in this setting. We observe the mean oracle guided policy performance gain across all counterfactual updates is approximately 27.9% greater than the critic guided policy updates.
 
 ### Agent performance
 
 ![Figure description](analysis/learning_curves.png)
 
-The agent's policy converges to the optimal policy in all variations.
+The agent's policy approaches optimal expected return across all ten seeds.
 
 ### Critic Estimation Quality
 
@@ -169,7 +167,7 @@ The agent's policy converges to the optimal policy in all variations.
 
 ![Figure description](analysis/gradient_alignment_over_training.png)
 
-We observe that although the critic retains a high RMSE during training relative to the oracle, the critic almost perfectly follows the oracle's action-ranking, and gradient alignment between the oracle and learner critic is close to its maximal value.
+We observe that although the learned critic retains a high RMSE, it almost perfectly follows the oracle's action-ranking, and gradient alignment between the oracle and learner critic is close to its maximal value.
 
 
 ### Policy Improvement Reliability
@@ -188,9 +186,26 @@ Here, on the left, we measured the expected change in return as a function of ho
 
 On the right, we summarize average KL divergence changes by oracle and learned critic across the ten seeds. The data shows that the learned critic produces larger average changes to the policy than the oracle in the majority of runs.
 
+### Policy Improvement Prediction Accuracy
+
+
+![Figure description](analysis/prediction_error_over_training.png)
+
+We measured the difference between what the critic predicts an update will accomplish and what that update actually accomplishes locally.
+
+![Figure description](analysis/predicted_vs_true_gain.png)
+
+
 ## Interpretation
 
-The critic remained numerically inaccurate, nevertheless produced highly aligned policy gradients, consistently generated beneficial updates, but underperformed the oracle in average improvement. The fact
+The results suggest that accurate action-value estimation is not strictly necessary for reliable policy improvement in the examined MDP. Although the learned critic retained substantial estimation error throughout training, its action rankings closely matched those of the oracle, and its policy gradients were strongly aligned with the gradients obtained from exact action values. The observed combination of nontrivial critic RMSE, high ranking accuracy, and strong gradient alignment is consistent with the hypothesis that **the structure of critic error matters more for policy improvement than its absolute magnitude alone**. However, this experiment does not establish a causal relationship between these quantities.
+
+Overall, this experiment establishes a baseline in which imperfect critic estimates still support reliable policy improvement, but produce less effective updates than exact critic guidance. The absence of harmful updates prevents us from identifying the specific critic errors responsible for destructive policy changes. Further experiments are therefore needed to determine how errors in action ranking, gradient direction, and gradient magnitude independently affect policy improvement.
+
+
+## Limitations
+
+This experiment examines one tabular learner operating on one handcrafted MDP. Its conclusions do not directly generalize to neural function approximation or larger environments.
 
 ## Reproduction
 
@@ -214,7 +229,3 @@ uv run --locked policy-lab-plot \
   experiments/001-critic-reliability/data \
   --out-dir experiments/001-critic-reliability/analysis
 ```
-
-## Limitations
-
-This experiment examines one tabular learner operating on one handcrafted MDP. Its conclusions do not directly generalize to neural function approximation or larger environments.

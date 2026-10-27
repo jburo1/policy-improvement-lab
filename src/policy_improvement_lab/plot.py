@@ -278,28 +278,20 @@ def main() -> None:
     fig.savefig(output / "critic_quality_over_training.png", dpi=160)
     plt.close(fig)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharex=True)
-    plot_seed_curve(axes[0], learned, "step", "gradient_cosine_similarity", color=color)
-    axes[0].axhline(0, color="black", linestyle="--", linewidth=1)
-    axes[0].set(xlabel="Environment steps", ylabel="Gradient cosine similarity", ylim=(-1.05, 1.05))
-    alignment = learned.assign(defined=learned["gradient_cosine_similarity"].notna())
-    plot_seed_curve(axes[1], alignment, "step", "defined", color=color)
-    axes[1].set(xlabel="Environment steps", ylabel="Fraction with defined cosine", ylim=(-0.05, 1.05))
-    fig.suptitle("Full-action gradient alignment (mean ± SD; undefined cosines excluded)")
+    fig, ax = plt.subplots(figsize=(7, 4))
+    plot_seed_curve(ax, learned, "step", "gradient_cosine_similarity", color=color)
+    ax.axhline(0, color="black", linestyle="--", linewidth=1)
+    ax.set(xlabel="Environment steps", ylabel="Gradient cosine similarity", ylim=(-1.05, 1.05))
+    fig.suptitle("Full-action gradient alignment\n(mean ± SD; undefined cosines excluded)")
     fig.tight_layout()
     fig.savefig(output / "gradient_alignment_over_training.png", dpi=160)
     plt.close(fig)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-    for ax, metric, label in zip(
-        axes, ("signed_local_gain_prediction_error", "absolute_local_gain_prediction_error"),
-        ("Signed local-gain error", "Absolute local-gain error"),
-        strict=True,
-    ):
-        plot_seed_curve(ax, learned, "step", metric, color=color)
-        ax.set(xlabel="Environment steps", ylabel=label)
-    axes[0].axhline(0, color="black", linestyle="--", linewidth=1)
-    axes[0].set_title("+ overestimate / − underestimate")
+    fig, ax = plt.subplots(figsize=(7, 4))
+    plot_seed_curve(ax, learned, "step", "signed_local_gain_prediction_error", color=color)
+    ax.set(xlabel="Environment steps", ylabel="Signed local-gain error")
+    ax.axhline(0, color="black", linestyle="--", linewidth=1)
+    ax.set_title("+ overestimate / − underestimate")
     fig.suptitle("Learned-guided gain prediction error (mean ± SD across seeds)")
     fig.tight_layout()
     fig.savefig(output / "prediction_error_over_training.png", dpi=160)
