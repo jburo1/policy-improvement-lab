@@ -18,8 +18,11 @@ Third: Investigate whether we can design actor updates that are more robust to t
 
 | Experiment | Status | Scope |
 | --- | --- | --- |
-| [001: Critic reliability](experiments/001-critic-reliability/README.md) | Planned | One full-action QAC learner; paired learned/exact critic diagnostics |
+| [001: Critic reliability](experiments/001-critic-reliability/README.md) | Completed | Tabular full-action QAC on one finite MDP; paired learned/exact critic diagnostics across 10 seeds |
 
+Experiment 001 trained each seed for 5,000 environment transitions. Of 510 frozen-checkpoint, learned-guided full-action candidate updates, 500 were beneficial, 10 were effectively neutral, and none were harmful. Despite persistent action-value estimation error, the learned critic preserved action rankings and showed strong gradient alignment with exact-value guidance (mean cosine similarity: 0.9817). Oracle-guided candidates produced approximately 27.9% greater mean performance gain at the same nominal actor learning rate.
+
+These results establish a baseline in which imperfect critic estimates support reliable policy improvement in one tabular MDP. They do not identify the errors that cause destructive updates or establish a causal relationship between critic error structure and update reliability. The next step is to isolate the effects of action-ranking, gradient-direction, and gradient-magnitude errors. See the [experiment report](experiments/001-critic-reliability/README.md) for results, limitations, and reproduction instructions.
 
 ## Setup and verification
 
