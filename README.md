@@ -19,6 +19,7 @@ Third: Investigate whether we can design actor updates that are more robust to t
 | Experiment | Status | Scope |
 | --- | --- | --- |
 | [001: Critic reliability](experiments/001-critic-reliability/README.md) | Completed | Tabular full-action QAC on one finite MDP; paired learned/exact critic diagnostics across 10 seeds |
+| [002: Controlled critic error](experiments/002-controlled-critic-error/README.md) | Planned | Frozen-checkpoint QAC updates under oracle, additive-bias, Gaussian-noise, and reversed critic guidance |
 
 Experiment 001 trained each seed for 5,000 environment transitions. Of 510 frozen-checkpoint, learned-guided full-action candidate updates, 500 were beneficial, 10 were effectively neutral, and none were harmful. Despite persistent action-value estimation error, the learned critic preserved action rankings and showed strong gradient alignment with exact-value guidance (mean cosine similarity: 0.9817). Oracle-guided candidates produced approximately 27.9% greater mean performance gain at the same nominal actor learning rate.
 
