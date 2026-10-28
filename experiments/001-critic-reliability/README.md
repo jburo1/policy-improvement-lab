@@ -191,14 +191,15 @@ On the right, we summarize average KL divergence changes by oracle and learned c
 
 ![Figure description](analysis/prediction_error_over_training.png)
 
-We measured the difference between what the critic predicts an update will accomplish and what that update actually accomplishes locally.
+The learned critic exhibits error when estimating the local improvement of its policy updates during early training, with a tendency to overestimate their benefits. Both signed and absolute prediction errors decrease as training progresses, approaching zero after approximately 2,000 environment steps. This indicates increasing agreement between the critic-estimated improvement and the improvement calculated using exact action values.
 
 ![Figure description](analysis/predicted_vs_true_gain.png)
 
+Most observations fall below the perfect-prediction diagonal, indicating that the learned critic tends to overestimate the local improvement produced by its policy updates. Nevertheless, the true local gains remain nonnegative, demonstrating that inaccurate estimates of improvement magnitude do not necessarily prevent the critic from guiding beneficial policy updates.
 
 ## Interpretation
 
-The results suggest that accurate action-value estimation is not strictly necessary for reliable policy improvement in the examined MDP. Although the learned critic retained substantial estimation error throughout training, its action rankings closely matched those of the oracle, and its policy gradients were strongly aligned with the gradients obtained from exact action values. The observed combination of nontrivial critic RMSE, high ranking accuracy, and strong gradient alignment is consistent with the hypothesis that **the structure of critic error matters more for policy improvement than its absolute magnitude alone**. However, this experiment does not establish a causal relationship between these quantities.
+The results suggest that accurate action-value estimation is not strictly necessary for reliable policy improvement in the examined MDP. Although the learned critic retained substantial estimation error throughout training, its action rankings closely matched those of the oracle, and its policy gradients were strongly aligned with the gradients obtained from exact action values. The observed combination of nontrivial critic RMSE, high ranking accuracy, and strong gradient alignment is consistent with the hypothesis that the structure of critic error matters more for policy improvement than its absolute magnitude alone. However, this experiment does not establish a causal relationship between these quantities.
 
 Overall, this experiment establishes a baseline in which imperfect critic estimates still support reliable policy improvement, but produce less effective updates than exact critic guidance. The absence of harmful updates prevents us from identifying the specific critic errors responsible for destructive policy changes. Further experiments are therefore needed to determine how errors in action ranking, gradient direction, and gradient magnitude independently affect policy improvement.
 
