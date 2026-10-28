@@ -1,271 +1,173 @@
 # 002 — Controlled Critic Error
 
-## Motivation
+How wrong can a critic be before its advice causes a harmful policy update?
+Experiment 001 observed useful updates despite substantial value error. This
+experiment separates errors in absolute scores from errors that change the
+actor's advice.
 
-Experiment 001 observed reliable policy improvements despite substantial critic value error in a small tabular MDP. It did not identify the errors that cause harmful updates. This experiment uses controlled perturbations to the critic to separate errors in absolute values from errors in action preferences and update direction, allowing their consequences for policy improvement to be examined at fixed policies.
+## The experiment in plain language
 
-## Research Question
+1. Train the same tabular actor–critic as Experiment 001.
+2. Pause at a checkpoint and calculate the true action values for that policy.
+3. Give the actor exact, biased, noisy, or reversed versions of those values.
+4. Try one update with each version, always starting from the same checkpoint.
+5. Calculate whether each candidate improves expected return, then discard it.
 
-**How do the type and magnitude of critic estimation error affect the reliability of tabular full-action QAC policy improvements?**
+The learner never receives exact values or synthetic guidance. These are
+uncommitted diagnostic updates. The experiment measures the reliability of
+individual updates; it does not train separate agents under each noise level.
 
-## Methodology
+The actor compares each action's score with the policy-weighted average score.
+Adding 10 to every action raises both by 10 and cancels out. For example,
+`[1, 2, 3]` and `[11, 12, 13]` produce the same update even though their absolute
+values differ greatly. Random noise can change those comparisons; negation
+reverses the local update direction.
 
-### Overview
+## Protocol
 
-1. **Retain the baseline.** Use Experiment 001's MDP, tabular QAC learner, and exact policy evaluation framework.
-2. **Freeze checkpoints.** Save policy logits, learned critic tables, and the next decision state at regular training checkpoints.
-3. **Control critic error.** Construct four synthetic guidance conditions at each frozen policy, using exact action values as the reference.
-4. **Compare candidate updates.** Apply the same single-state actor update independently under each condition and evaluate its exact performance change.
-5. **Analyze reliability.** Relate perturbation magnitude, gradient alignment, and critic RMSE to harmful update frequency and actual policy improvement.
-
-### 1. Experimental Environment
-
-The experiment retains `branching_mdp_v1`.
-
-| Property | Configuration |
+| Setting | Value |
 |---|---|
-| Environment | `branching_mdp_v1` |
-| Decision states | 5 |
-| Actions per state | 3 |
-| Terminal states | 1 absorbing state |
-| Discount factor | 0.95 |
-| Initial state | State 0 |
-| Reward structure | Transition costs and delayed terminal reward |
-| Reference evaluation | Exact Bellman solution for $Q^\pi$ and expected discounted return $J(\pi)$ |
-
-### 2. Learning Algorithm
-
-Training retains tabular **full-action Q Actor–Critic (QAC)** with an on-policy one-step Expected SARSA critic. Candidate actor updates use the existing softmax-logit update at one decision state:
-
-$$
-\theta'_{s,a} = \theta_{s,a} + \alpha \pi(a\mid s)
-\left[\widetilde Q(s,a) - \sum_b \pi(b\mid s)\widetilde Q(s,b)\right].
-$$
-
-| Parameter | Configuration |
-|---|---|
-| Training method | `qac_full` |
-| Policy / critic representation | Tabular softmax logits / tabular action values |
-| Critic update | One-step Expected SARSA |
+| Environment | `branching_mdp_v1`: five decision states, three actions, one absorbing terminal state |
+| Discount / initial state | 0.95 / state 0 |
+| Learner | Tabular softmax full-action QAC with a one-step Expected SARSA critic |
 | Actor / critic learning rate | 0.20 / 0.12 |
-| Initialization | Zero actor logits and critic values |
-| Training duration | 5,000 environment transitions per seed |
-| Checkpoints | Initialization and every 100 completed transitions |
-| Training seeds | 0–9 |
+| Initialization | Zero logits and critic values |
+| Training | 5,000 transitions for each seed 0–9 |
+| Checkpoints | Step 0 and every 100 completed transitions: 510 total |
+| Updated state | Next decision state at the checkpoint, including reset after termination |
 
-Training calls the same `train(..., "qac_full", ...)` implementation as EXP001.
-Checkpoints describe parameters **after** the specified number of completed
-transitions and their learning updates; step 0 precedes learning. The frozen
-state is the next decision state, including a reset to state 0 after termination.
-The learner's training RNG and original diagnostic RNG are unchanged. An optional
-checkpoint callback receives copies of the logits and learned Q table. Synthetic
-guidance is used only for uncommitted counterfactuals and never feeds back into
-training. Every candidate starts from the same frozen logits and updates only
-the same state's row, with actor rate 0.20 and no KL backtracking.
-
-### 3. Controlled Critic Perturbations
-
-At each checkpoint, we calculate $Q^\pi$ for the frozen policy and construct the following guidance tables over decision states. These oracle-derived controls isolate imposed errors without confounding them with the learned critic's existing error.
-
-| Condition | Guidance $\widetilde Q(s,a)$ | Purpose |
-|---|---|---|
-| Oracle | $Q^\pi(s,a)$ | Error-free reference for the same actor update |
-| Additive bias | $Q^\pi(s,a) + b$ | Change absolute value error while preserving action preferences |
-| Gaussian noise | $Q^\pi(s,a) + \sigma Z_{s,a}$, with independent $Z_{s,a}\sim\mathcal N(0,1)$ | Vary error magnitude and disrupt action preferences |
-| Deliberately reversed guidance | $-Q^\pi(s,a)$ | Reverse all non-tied action preferences and the local QAC gradient |
-
-We use a uniform, action-independent bias $b$ as a structural control: its contribution cancels in the centered QAC update, even as RMSE increases. Reversed guidance negates the oracle gradient wherever that gradient is nonzero; its finite-step performance effect is measured rather than assumed.
-
-#### Finalized magnitude grid and sampling
-
-The additive-bias grid is **$b\in\{0,1,10\}$**, in action-value units. Oracle and
-reversed guidance each have one candidate per checkpoint. For storage, their
-`magnitude` labels are 0 and 1 respectively; these labels are not additional sweeps.
-Terminal-state values remain unchanged under every condition.
-
-For Gaussian noise, define a gap scale separately at every decision state:
+Checkpoints follow the specified learning updates; step 0 precedes learning.
+Every candidate changes only the same state's logits, using the existing update
+without KL backtracking:
 
 $$
-g_s=\max\left(10^{-6},
-\sqrt{\frac{1}{\binom{3}{2}}\sum_{a<b}
-\left[Q^\pi(s,a)-Q^\pi(s,b)\right]^2}\right),
-\qquad \sigma_s=m g_s.
+\theta'_{s,a}=\theta_{s,a}+0.20\,\pi(a\mid s)
+\left[\widetilde Q(s,a)-\sum_b\pi(b\mid s)\widetilde Q(s,b)\right].
 $$
 
-Use **$m\in\{0,0.25,0.5,1,2,4,8\}$**, with **20 independent table draws at
-every checkpoint and magnitude**, including zero. Each draw has independent
-standard-normal entries over decision states/actions; its standard deviations
-are state-specific. A single multiplier therefore need not imply a single
-absolute standard deviation over the table. Record `local_gap_scale` and
-`local_noise_sigma` at the updated state. This grid is fixed before execution
-and does not depend on observed policy improvements.
+Synthetic guidance is constructed around exact $Q^\pi$, replacing the learned
+critic for this diagnostic only. It is not noise added to the learned critic.
 
-If all pairwise gaps vanish or the RMS gap is below $10^{-6}$, use the floor
-$g_s=10^{-6}$ rather than dividing by zero, omitting the checkpoint, or silently
-removing noise. Ranking accuracy excludes exact-value pair gaps at or below
-$10^{-6}$ independently of this scaling rule; no eligible pairs yields NaN.
-Gradient cosine is NaN when either norm is at most $10^{-12}$. Summaries exclude
-undefined values from their means and retain defined counts/frequencies.
+| Condition | Guidance | Candidates per checkpoint |
+|---|---|---:|
+| Oracle | $Q^\pi$ | 1 |
+| Additive bias | $Q^\pi+10$ | 1 |
+| Reversed guidance | $-Q^\pi$ | 1 |
+| Gaussian noise | $Q^\pi(s,a)+m g_s Z_{s,a}$ | 20 draws at each of six multipliers |
 
-The default noise root is **0**. Each sample seed is the uint64 output of
-`SeedSequence([2002, noise_root, training_seed, checkpoint_step, low32(m_bits),
-high32(m_bits), replicate]).generate_state(1, dtype=uint64)`, where `m_bits` is
-the IEEE-754 float64 encoding of the multiplier. `default_rng(sample_seed)`
-draws a `(5, 3)` normal table in decision-state order. The seed is saved as a
-hexadecimal string to avoid CSV integer precision loss. Keys do not depend on
-iteration order; noise never consumes training randomness. Replicates are 0–19;
-deterministic controls use replicate −1 and an empty noise seed. Software
-versions are recorded for reproducibility.
+Here $Z_{s,a}$ are independent standard normals and
+$m\in\{0.25,0.5,1,2,4,8\}$. The noise scale $g_s$ is the RMS of the three
+pairwise action-value differences at state $s$, floored at $10^{-6}$.
+A multiplier of 1 therefore means noise on the scale of typical action-value
+differences. The grid is fixed independently of observed gains.
 
-The complete configuration produces **510 frozen checkpoints** (51 per seed)
-and **73,950 candidate rows** (145 per checkpoint).
+This gives **123 candidates per checkpoint and 62,730 total**. The oracle is
+also the zero-noise reference in the figure; no duplicate zero-noise or zero-bias
+candidates are generated. Bias invariance at 0, 1, and 10 remains directly tested.
 
-### 4. Measurements
+## Measurements and summaries
 
-Each candidate is evaluated against its unchanged checkpoint policy using the existing exact policy evaluation framework.
+The two primary measurements are:
 
-| Primary measurement | Definition |
-|---|---|
-| Critic RMSE | Root mean squared error between $\widetilde Q$ and $Q^\pi$, uniformly over decision-state/action pairs |
-| State-local critic RMSE | Same RMSE restricted to the updated state's three actions (`local_rmse`) |
-| Action-ranking accuracy | Fraction of action pairs correctly ordered by $\widetilde Q$, excluding exact-value gaps at or below $10^{-6}$ |
-| State-local action-ranking accuracy | Same eligible-pair fraction at the updated state (`local_ranking_accuracy`); a predicted tie is incorrect |
-| Gradient alignment | Cosine between perturbed-guidance and oracle full-action logit gradients at the updated state; both gradient norms are also recorded |
-| Exact policy improvement | $\Delta J = J(\pi') - J(\pi)$, using exact evaluation of each candidate policy |
-| Exact local policy improvement | $\Delta_s=\sum_a[\pi'(a\mid s)-\pi(a\mid s)]Q^\pi(s,a)$ (`true_local_gain`) |
-| Paired performance difference | Oracle $\Delta J$ minus this candidate's $\Delta J$ at the identical frozen checkpoint (`oracle_minus_perturbed_gain`); positive favors oracle |
-| Harmful update frequency | Fraction of candidates with $\Delta J < -10^{-12}$ within each condition and magnitude; beneficial and effectively zero counts are also retained |
-| Policy KL divergence | Realized $D_{\mathrm{KL}}(\pi'(\cdot\mid s)\Vert\pi(\cdot\mid s))$ at the updated state |
+- **Harmful frequency:** fraction of candidates with exact expected-return change
+  $\Delta J=J(\pi')-J(\pi)<-10^{-12}$.
+- **Mean gain:** mean exact $\Delta J$. This distinguishes average performance
+  from how often an individual update hurts.
 
-The raw data also retains predicted local gain under the candidate's guidance,
-global action-selection regret, checkpoint expected return, and the matched
-oracle gain. Critic-quality fields on EXP002 rows describe that row's synthetic
-guidance (EXP001's learned-critic field semantics are unchanged). For single-state
-updates, exact global gain equals exact local gain times the new policy's
-unnormalized discounted occupancy of the updated state; local and global gains
-are distinct quantities.
+Supporting diagnostics describe the three actions at the updated state:
+local critic RMSE, local pairwise ranking accuracy, gradient cosine and both
+norms, realized $D_{KL}(\pi'\Vert\pi)$, exact local gain, and the paired
+oracle-minus-candidate global gain. Positive paired differences favor the oracle.
+The oracle is a reference, not an assumed best finite-step candidate.
 
-Records in `data/` identify the source revision, run configuration, training seed, checkpoint step, updated state, condition, magnitude, and noise seed/replicate. Frozen policy and critic tables are saved so paired comparisons can be reconstructed. Summaries and figures are written to `analysis/`.
+Local gain is $\sum_a[\pi'(a\mid s)-\pi(a\mid s)]Q^\pi(s,a)$. Global gain
+also accounts for visitation: it equals local gain times the new policy's
+unnormalized discounted occupancy of the updated state. Only that state's
+critic row affects this candidate, so EXP002 no longer reports global
+synthetic-critic metrics. Training checkpoint diagnostics retain their EXP001
+meaning.
 
-### 5. Analysis
+Average draws within each checkpoint, then checkpoints within each seed, then
+report equally weighted seed means and sample SD across seeds. Checkpoints and
+noise draws are not independent training runs. Harmful frequency averages the
+individual harmful indicators, not the sign of mean gain. Initialization has
+the same checkpoint weight as later measurements. Beneficial, harmful, and
+effectively zero counts retain actual candidate totals.
 
-| Analysis | Purpose |
-|---|---|
-| Noise magnitude versus harmful update frequency | Measure how reliability varies with Gaussian noise standard deviation, including the zero-noise reference |
-| Gradient alignment versus actual policy improvement | Examine whether local update direction predicts the sign and magnitude of exact $\Delta J$ |
-| Critic RMSE versus actual policy improvement | Compare error magnitude with exact $\Delta J$ across conditions, including the action-independent bias control |
+Ranking excludes true pair gaps at or below $10^{-6}$; predicted ties are
+incorrect. No eligible pairs gives NaN. Gradient cosine is NaN if either norm
+is at most $10^{-12}$. Means exclude undefined values and retain defined counts
+and frequencies. Across-seed summaries include each metric's contributing-seed
+count. A single-seed SD is NaN in tables and has zero-width figure bands.
 
-We summarize noise replicates within checkpoints and checkpoints within each training seed before reporting equally weighted across-seed summaries and variability. Repeated checkpoints and noise draws are not treated as independent training runs. Analyses retain condition, magnitude, training stage, and realized KL so differences in update size and checkpoint policy can be assessed alongside gradient direction and value error. Magnitudes are not rescaled using observed performance outcomes.
+## Results
 
-The analysis validates the complete configured candidate grid, unique
-checkpoint/replicate keys, checkpoint returns, and paired oracle differences
-before aggregating. Pairing uses `(run_id, seed, step, state)`. No merge or
-aggregation combines different run configurations. Each noise checkpoint's
-harmful frequency is the fraction of its 20 draws that are harmful; it is not
-the sign of their mean gain. All checkpoints, including initialization, have
-equal weight within each seed. Across-seed variability is the **sample standard
-deviation**, not a confidence interval. A single-seed SD remains NaN in CSVs;
-figure bands have zero width for singletons. Every metric's across-seed summary
-includes its contributing-seed count, including metrics with undefined values.
+The simplified protocol is implemented; its complete rerun and results will be
+recorded here after execution.
 
-Training-stage summaries use fixed bins `[0, 500]`, `(500, 1000]`, …,
-`(4500, 5000]`, with the same draw → checkpoint → seed aggregation within bins.
-Outcome and defined-gradient counts sum actual candidates; frequency and gain
-means retain checkpoint and seed weighting rather than pooling those counts.
+## Interpretation
 
-### Output files
+Reserved for manual scientific interpretation.
 
-`data/` contains:
+## Limits
 
-- `config.json`: finalized configuration, run ID, revision, checkout dirty flag,
-  source-module SHA-256 hashes, and Python/NumPy versions. The run ID hashes this
-  metadata excluding the dirty flag, so generated output files cannot change it.
-- `source_revision.txt`: originating Git revision (hashes also identify uncommitted code).
-- `checkpoints.csv`: training performance/learned-critic diagnostics, seed, step,
-  next decision state, run ID, and revision.
-- `frozen_checkpoints.npz`: aligned arrays `seed`, `step`, `state`, `logits`,
-  `critic_q`, plus `run_id`. Load with `numpy.load`; recompute exact Q from each
-  saved policy and reconstruct draws using the recorded keys.
-- `counterfactual_updates.csv`: every candidate, synthetic-guidance metrics,
-  outcome indicators, pairing keys, magnitude, replicate, and noise seed.
+This is one small handcrafted MDP with tabular policies and synthetic critic
+errors. Single-step results do not establish long-term learning performance or
+generalization to larger environments and learned function approximators.
+The updated state follows the training trajectory rather than uniform sampling.
+Twenty noise draws give checkpoint frequencies in increments of 0.05; ten
+training seeds limit precision. Equal actor learning rates do not match realized
+KL, so noise changes both direction and update size. Gradient alignment alone
+does not determine finite-step gain. Near tied values, the gap floor supplies an
+absolute noise scale rather than a meaningful relative ratio.
 
-`analysis/` contains:
+## Reproduce and inspect
 
-- `checkpoint_summary.csv`: draw means, candidate/outcome counts, defined-gradient
-  counts/frequencies, and training-stage bin for each checkpoint/condition/magnitude.
-- `seed_summary.csv` and `summary.csv`: within-seed checkpoint means/counts,
-  followed by separate across-seed mean, sample SD, and contributing-seed count columns.
-- `stage_seed_summary.csv` and `stage_summary.csv`: the same hierarchy by training stage.
-- `noise_magnitude_vs_harmful_frequency.png`: mean ± seed SD overall and by stage,
-  including zero noise.
-- `gradient_alignment_vs_improvement.png`: checkpoint-mean alignment versus exact
-  global improvement, with realized KL versus improvement alongside it.
-- `critic_rmse_vs_improvement.png`: global and state-local RMSE versus exact global improvement.
-
-Scatter plots distinguish conditions and show descriptive checkpoint means;
-they are not independent-run observations or inferential correlation tests.
-Magnitude, stage, and KL remain in the summary tables for stratified inspection;
-raw draws retain within-checkpoint relationships that scatter means can obscure.
-
-## Limitations
-
-The study examines one handcrafted MDP and a tabular learner; it does not establish generalization to function approximation or larger environments. Synthetic errors around exact values isolate controlled interventions but do not reproduce every structure of learned critic error. Single-step counterfactual improvements do not establish long-term learning performance. Finite-step gains depend on policy, state visitation, and update size as well as critic error; gradient alignment alone does not determine their magnitude.
-
-The checkpoint decision state is visited rather than uniformly sampled, while
-global critic metrics weight states/actions uniformly. The gap floor provides
-an absolute noise scale at near-ties rather than a meaningful relative ratio.
-Equal nominal actor rates do not match realized KL across conditions. Twenty
-noise draws give a coarse checkpoint harmful-frequency resolution of 0.05;
-ten training seeds limit precision of across-seed variability. Finite-step
-oracle guidance is a reference, not an assumed best candidate. No full EXP002
-results have been generated as part of preparation; smoke outputs validate
-execution only.
-
-## Reproduction
-
-Run from the repository root, using the existing locked environment:
+From the repository root:
 
 ```bash
 uv sync --locked --python 3.11 --extra dev --extra analysis
-```
-
-### Complete experiment (not run during preparation)
-
-```bash
-uv run --locked python -m policy_improvement_lab.controlled_error \
-  --steps 5000 --eval-every 100 \
-  --actor-lr 0.20 --critic-lr 0.12 \
-  --seeds 0 1 2 3 4 5 6 7 8 9 --noise-root 0 \
-  --out-dir experiments/002-controlled-critic-error/data
-
+uv run --locked python -m policy_improvement_lab.controlled_error
 uv run --locked python -m policy_improvement_lab.controlled_error_plot \
   experiments/002-controlled-critic-error/data \
   --out-dir experiments/002-controlled-critic-error/analysis
-```
-
-These are also the runner's defaults; analysis is a separate offline operation
-and never invokes learning. Choose a fresh output directory for a distinct
-configuration: files with the same names are replaced when rerunning.
-
-### Minimal smoke run (two seeds, two checkpoints per seed)
-
-Smoke artifacts stay under the repository's ignored `artifacts/` directory:
-
-```bash
-uv run --locked python -m policy_improvement_lab.controlled_error \
-  --steps 10 --eval-every 10 --seeds 0 1 --noise-root 0 \
-  --out-dir artifacts/002-controlled-critic-error/data
-
-uv run --locked python -m policy_improvement_lab.controlled_error_plot \
-  artifacts/002-controlled-critic-error/data \
-  --out-dir artifacts/002-controlled-critic-error/analysis
-
 uv run --locked pytest -q
 uv run --locked ruff check .
 ```
 
-This smoke run retains the complete condition/magnitude grid and all 20 noise
-draws: four frozen checkpoints and 580 candidates. Focused EXP002 tests are in
-`tests/test_controlled_error.py`, including perturbations, deterministic draws,
-observer/candidate isolation, exact metric identities, hierarchical weighting,
-pairing validation, saved-checkpoint reconstruction, and figure generation.
+The runner defaults to the full protocol above and noise root 0. For a smoke
+run, use `--steps 10 --eval-every 10 --seeds 0 1` and an output directory under
+ignored `artifacts/`. This gives four checkpoints and 492 candidates. Analysis
+is offline and never invokes learning. Use fresh output directories for distinct
+runs; rerunning replaces files with the same names.
+
+| Output | Contents |
+|---|---|
+| [data/config.json](data/config.json) | Run configuration, run ID, Git revision, dirty flag, source hashes, Python/NumPy versions |
+| [data/checkpoints.csv](data/checkpoints.csv) | Training return, learned-critic diagnostics, and checkpoint identity |
+| [data/frozen_checkpoints.npz](data/frozen_checkpoints.npz) | Aligned seed, step, state, logits, learned critic, and run ID arrays |
+| [data/counterfactual_updates.csv](data/counterfactual_updates.csv) | Every candidate, local diagnostics, outcomes, pairing keys, and noise seed |
+| [analysis/checkpoint_summary.csv](analysis/checkpoint_summary.csv) | Draw means and counts per checkpoint/condition/magnitude |
+| [analysis/seed_summary.csv](analysis/seed_summary.csv) | Checkpoint means and counts within each seed |
+| [analysis/summary.csv](analysis/summary.csv) | Across-seed means, sample SDs, and contributing-seed counts |
+
+The analysis validates the complete configured grid, unique candidate keys,
+checkpoint returns, and paired oracle differences before aggregation. Pairing
+uses `(run_id, seed, step, state)`; runs are never combined. Training step remains
+in raw and checkpoint tables for further inspection; separate stage summaries
+are no longer generated.
+
+Noise still uses the original independent `(5, 3)` table draws and leaves the
+terminal state unchanged, preserving the retained comparisons with the earlier
+protocol. Only the updated row enters the actor update and local diagnostics.
+Each sample has a deterministic seed keyed by training seed, checkpoint step,
+multiplier, replicate, and noise root; see
+[`noise_seed`](../../src/policy_improvement_lab/controlled_error.py). Noise does
+not consume training randomness. The seed is stored as hexadecimal text to
+avoid CSV integer precision loss. Deterministic controls use replicate −1 and
+an empty noise seed. Load snapshots with `numpy.load`, recompute exact values,
+and reconstruct candidates with the saved configuration and keys.
+
+The run ID hashes configuration and source metadata except the dirty flag;
+`source_revision.txt` also records the Git revision. Frozen snapshots and source
+hashes identify runs made from an uncommitted checkout.

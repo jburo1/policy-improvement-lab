@@ -1,4 +1,4 @@
-"""Offline EXP002 pairing, hierarchical summaries, and the three planned analyses."""
+"""Offline EXP002 pairing, equal-seed summaries, and noise-response figures."""
 
 import argparse
 import json
@@ -7,15 +7,15 @@ from pathlib import Path
 import numpy as np
 
 from .diagnostics import GRADIENT_ZERO_TOLERANCE
-from .plot import TRAINING_STEP_BIN_WIDTH, plot_seed_curve
+from .plot import plot_seed_curve
 
 CHECKPOINT_KEYS = ["run_id", "seed", "step", "state"]
 CONDITION_KEYS = ["condition", "magnitude"]
 MEASUREMENTS = [
-    "checkpoint_expected_return", "rmse", "ranking_accuracy", "consequential_ranking_regret",
+    "checkpoint_expected_return",
     "local_rmse", "local_ranking_accuracy", "local_gap_scale", "local_noise_sigma",
     "guidance_gradient_norm", "oracle_gradient_norm", "gradient_cosine_similarity",
-    "predicted_local_gain", "true_local_gain", "actual_performance_gain", "state_kl",
+    "true_local_gain", "actual_performance_gain", "state_kl",
     "oracle_performance_gain", "oracle_minus_perturbed_gain",
     "beneficial_frequency", "harmful_frequency", "effectively_zero_frequency",
     "defined_alignment_frequency", "guidance_zero_gradient_frequency", "oracle_zero_gradient_frequency",
@@ -33,8 +33,7 @@ def validate_pairs(checkpoints, updates, config):
     if (set(checkpoints.run_id) != {config["run_id"]} or set(updates.run_id) != {config["run_id"]}
             or set(checkpoints.seed) != set(config["seeds"])):
         raise ValueError("Run IDs and seeds must match config.json")
-    if not (checkpoints.method.eq("qac_full").all() and updates.method.eq("qac_full").all()
-            and updates.training_method.eq("qac_full").all()):
+    if not (checkpoints.method.eq("qac_full").all() and config["methods"] == ["qac_full"]):
         raise ValueError("EXP002 supports only full-action QAC")
     steps = config["run_config"]["steps"]
     every = config["run_config"]["eval_every"]
@@ -43,7 +42,7 @@ def validate_pairs(checkpoints, updates, config):
         if sorted(group.step) != expected_steps:
             raise ValueError("Missing or duplicate training checkpoints")
     cases = [("oracle", 0.0, -1), ("reversed_guidance", 1.0, -1)]
-    cases += [("additive_bias", b, -1) for b in config["additive_biases"]]
+    cases += [("additive_bias", config["additive_bias"], -1)]
     cases += [("gaussian_noise", m, r) for m in config["noise_multipliers"]
               for r in range(config["noise_replicates"])]
     expected = pd.MultiIndex.from_tuples(
@@ -88,14 +87,11 @@ def summarize_checkpoints(updates):
     for name in ("beneficial", "harmful", "effectively_zero", "defined_alignment",
                  "guidance_zero_gradient", "oracle_zero_gradient"):
         summary[f"{name}_count"] = grouped[f"{name}_frequency"].sum()
-    summary = summary.reset_index()
-    summary["bin_end"] = ((summary.step - 1).clip(lower=0) // TRAINING_STEP_BIN_WIDTH + 1) \
-        * TRAINING_STEP_BIN_WIDTH
-    return summary
+    return summary.reset_index()
 
 
-def summarize_seeds(checkpoint_summary, *, by_stage=False):
-    keys = ["run_id", "seed", *CONDITION_KEYS] + (["bin_end"] if by_stage else [])
+def summarize_seeds(checkpoint_summary):
+    keys = ["run_id", "seed", *CONDITION_KEYS]
     groups = checkpoint_summary.groupby(keys, dropna=False)
     result = groups[MEASUREMENTS].mean()
     result["checkpoint_count"] = groups.size()
@@ -103,9 +99,9 @@ def summarize_seeds(checkpoint_summary, *, by_stage=False):
     return result.reset_index()
 
 
-def summarize_across_seeds(seed_summary, *, by_stage=False):
+def summarize_across_seeds(seed_summary):
     """Equal seed weights; SD is sample SD and undefined for a single seed."""
-    keys = ["run_id", *CONDITION_KEYS] + (["bin_end"] if by_stage else [])
+    keys = ["run_id", *CONDITION_KEYS]
     metrics = MEASUREMENTS + ["checkpoint_count", *COUNTS]
     result = seed_summary.groupby(keys)[metrics].agg(["mean", "std", "count"])
     result.columns = [f"{metric}_{statistic}" for metric, statistic in result.columns]
@@ -125,56 +121,46 @@ def analyze(results_dir: Path, out_dir: Path) -> None:
     validate_pairs(checkpoints, updates, config)
     checkpoint_summary = summarize_checkpoints(updates)
     seeds = summarize_seeds(checkpoint_summary)
-    stages = summarize_seeds(checkpoint_summary, by_stage=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, frame in (
         ("checkpoint_summary", checkpoint_summary), ("seed_summary", seeds),
-        ("summary", summarize_across_seeds(seeds)), ("stage_seed_summary", stages),
-        ("stage_summary", summarize_across_seeds(stages, by_stage=True)),
+        ("summary", summarize_across_seeds(seeds)),
     ):
         frame.to_csv(out_dir / f"{name}.csv", index=False)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4), constrained_layout=True)
-    noise = seeds.loc[seeds.condition.eq("gaussian_noise")]
-    plot_seed_curve(axes[0], noise, "magnitude", "harmful_frequency", color="tab:blue")
-    axes[0].set_title("All checkpoints: equal seed weights, mean ± SD")
-    stage_noise = stages.loc[stages.condition.eq("gaussian_noise")]
-    colors = plt.get_cmap("viridis")(np.linspace(0, 1, stage_noise.bin_end.nunique()))
-    for (end, rows), color in zip(stage_noise.groupby("bin_end"), colors, strict=True):
-        plot_seed_curve(axes[1], rows, "magnitude", "harmful_frequency", color=color,
-                        label=f"{max(0, end - TRAINING_STEP_BIN_WIDTH)}–{end} steps")
-    axes[1].set_title("By training stage: mean ± SD across seeds")
-    for ax in axes:
-        ax.set(xlabel="Noise multiplier (σ / local gap scale)", ylabel="Harmful update frequency")
+    # Exact guidance is the sole zero-noise reference, not another set of draws.
+    noise = seeds.loc[seeds.condition.isin(["gaussian_noise", "oracle"])]
+    ticks = [0.0, *config["noise_multipliers"]]
+    for ax, metric, label in zip(axes, ["harmful_frequency", "actual_performance_gain"],
+                                 ["Harmful update frequency", "Mean exact improvement ΔJ"], strict=True):
+        plot_seed_curve(ax, noise, "magnitude", metric, color="tab:blue")
+        ax.set(xlabel="Noise multiplier (σ / local gap scale)", ylabel=label)
         ax.set_xscale("symlog", linthresh=0.25)
-        ax.set_xticks(config["noise_multipliers"], [f"{m:g}" for m in config["noise_multipliers"]])
-        ax.set_ylim(-0.05, 1.05)
+        ax.set_xticks(ticks, [f"{m:g}" for m in ticks])
+        ax.axhline(0, color="black", linewidth=0.6)
         ax.grid(alpha=0.2)
-    axes[1].legend(fontsize=7)
-    fig.savefig(out_dir / "noise_magnitude_vs_harmful_frequency.png", dpi=160)
+    axes[0].set_ylim(-0.05, 1.05)
+    fig.suptitle("Noise response: equal seed weights, mean ± seed SD; 0 = oracle")
+    fig.savefig(out_dir / "noise_response.png", dpi=160)
     plt.close(fig)
 
-    def scatter_figure(filename, panels):
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4), constrained_layout=True)
-        for ax, (x, label) in zip(axes, panels, strict=True):
-            for condition, rows in checkpoint_summary.groupby("condition"):
-                ax.scatter(rows[x], rows.actual_performance_gain, s=12, alpha=0.4, label=condition)
-            ax.axhline(0, color="black", linewidth=0.6)
-            ax.set(xlabel=label, ylabel="Exact global improvement ΔJ")
-            ax.grid(alpha=0.2)
-        axes[0].legend(fontsize=8)
-        fig.suptitle("Descriptive checkpoint means (noise draws averaged within checkpoint)")
-        fig.savefig(out_dir / filename, dpi=160)
-        plt.close(fig)
-
-    scatter_figure("gradient_alignment_vs_improvement.png", [
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4), constrained_layout=True)
+    panels = [
         ("gradient_cosine_similarity", "Local gradient cosine similarity"),
         ("state_kl", "Realized state KL"),
-    ])
-    scatter_figure("critic_rmse_vs_improvement.png", [
-        ("rmse", "Global critic RMSE"), ("local_rmse", "State-local critic RMSE"),
-    ])
-    print(f"Summaries and three figures written to {out_dir.resolve()}")
+    ]
+    for ax, (x, label) in zip(axes, panels, strict=True):
+        for condition, rows in checkpoint_summary.groupby("condition"):
+            ax.scatter(rows[x], rows.actual_performance_gain, s=12, alpha=0.4, label=condition)
+        ax.axhline(0, color="black", linewidth=0.6)
+        ax.set(xlabel=label, ylabel="Exact global improvement ΔJ")
+        ax.grid(alpha=0.2)
+    axes[0].legend(fontsize=8)
+    fig.suptitle("Descriptive checkpoint means (noise draws averaged within checkpoint)")
+    fig.savefig(out_dir / "gradient_alignment_vs_improvement.png", dpi=160)
+    plt.close(fig)
+    print(f"Summaries and two figures written to {out_dir.resolve()}")
 
 
 def main() -> None:

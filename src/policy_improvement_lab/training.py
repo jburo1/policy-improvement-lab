@@ -29,6 +29,7 @@ class RunConfig:
 def train(
     mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig, *,
     checkpoint_callback: Callable[[int, NDArray, NDArray, int], None] | None = None,
+    measure_counterfactuals: bool = True,
 ) -> tuple[list[dict], list[dict]]:
     """Run one seeded learner; return checkpoint and counterfactual records.
 
@@ -38,6 +39,7 @@ def train(
     * Reference Q^pi is used for analysis, never for actual learning.
     * Optional checkpoint observers receive (step, copied logits, copied Q,
       next decision state), after that checkpoint's original diagnostics.
+    * Counterfactual measurements can be skipped without changing learning.
     """
     rng = np.random.default_rng(seed)
     diagnostic_rng = np.random.default_rng(np.random.SeedSequence([seed, 1]))
@@ -56,11 +58,12 @@ def train(
         if method != "ac_td0":
             _, true_q = mdp.exact_values(p)
             record.update(vars(critic_quality(mdp, q_hat, true_q)))
-            action = int(diagnostic_rng.choice(mdp.n_actions, p=p[state]))
-            update_metrics.extend(counterfactual_updates(
-                mdp, logits, q_hat, state, action, cfg.actor_lr, cfg.kl_limit, seed, step,
-                training_method=method,
-            ))
+            if measure_counterfactuals:
+                action = int(diagnostic_rng.choice(mdp.n_actions, p=p[state]))
+                update_metrics.extend(counterfactual_updates(
+                    mdp, logits, q_hat, state, action, cfg.actor_lr, cfg.kl_limit, seed, step,
+                    training_method=method,
+                ))
         trajectory_metrics.append(record)
         if checkpoint_callback is not None:
             # Observers own their copies and cannot mutate the learner's tables.

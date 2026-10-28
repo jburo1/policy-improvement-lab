@@ -16,8 +16,8 @@ from .mdp import FiniteMDP, make_branching_mdp
 from .operators import kl_new_old, softmax, update_logits
 from .training import RunConfig, train
 
-NOISE_MULTIPLIERS = (0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
-ADDITIVE_BIASES = (0.0, 1.0, 10.0)
+NOISE_MULTIPLIERS = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
+ADDITIVE_BIAS = 10.0
 NOISE_REPLICATES = 20
 GAP_FLOOR = 1e-6
 GAIN_ZERO_TOLERANCE = 1e-12
@@ -59,25 +59,21 @@ def construct_guidance(
 
 def evaluate_candidate(
     mdp: FiniteMDP, logits: np.ndarray, exact_q: np.ndarray, state: int,
-    guidance: np.ndarray, cfg: RunConfig,
+    guidance: np.ndarray, cfg: RunConfig, *, old_pi: np.ndarray, old_j: float,
 ) -> dict:
     """One independent full-action update and exact diagnostics at the frozen state."""
-    old_pi = softmax(logits)
-    old_j = mdp.performance(old_pi)
     # Full-action QAC ignores the action argument and does not backtrack on KL.
     new_logits = update_logits(logits, state, "qac_full", 0, guidance, cfg.actor_lr, cfg.kl_limit)
     new_pi = softmax(new_logits)
     delta = new_pi[state] - old_pi[state]
-    quality = critic_quality(mdp, guidance, exact_q)
     local = critic_quality(mdp, guidance, exact_q, states=np.array([state]))
     alignment = asdict(gradient_alignment(old_pi[state], guidance[state], exact_q[state]))
     alignment["guidance_gradient_norm"] = alignment.pop("learned_gradient_norm")
     gain = mdp.performance(new_pi) - old_j
     return {
         "checkpoint_expected_return": old_j,
-        **asdict(quality), "local_rmse": local.rmse, "local_ranking_accuracy": local.ranking_accuracy,
+        "local_rmse": local.rmse, "local_ranking_accuracy": local.ranking_accuracy,
         **alignment,
-        "predicted_local_gain": float(delta @ guidance[state]),
         "true_local_gain": float(delta @ exact_q[state]),
         "actual_performance_gain": gain,
         "state_kl": kl_new_old(new_pi[state], old_pi[state]),
@@ -92,10 +88,12 @@ def checkpoint_candidates(
     *, noise_root: int = 0,
 ) -> list[dict]:
     """All candidates start from the supplied logits; none are committed to training."""
-    _, exact_q = mdp.exact_values(softmax(logits))
-    oracle = evaluate_candidate(mdp, logits, exact_q, state, exact_q, cfg)
+    old_pi = softmax(logits)
+    values, exact_q = mdp.exact_values(old_pi)
+    baseline = {"old_pi": old_pi, "old_j": float(mdp.initial_distribution @ values)}
+    oracle = evaluate_candidate(mdp, logits, exact_q, state, exact_q, cfg, **baseline)
     cases = [("oracle", 0.0, -1), ("reversed_guidance", 1.0, -1)]
-    cases += [("additive_bias", bias, -1) for bias in ADDITIVE_BIASES]
+    cases += [("additive_bias", ADDITIVE_BIAS, -1)]
     cases += [("gaussian_noise", scale, rep)
               for scale in NOISE_MULTIPLIERS for rep in range(NOISE_REPLICATES)]
     rows = []
@@ -103,10 +101,10 @@ def checkpoint_candidates(
     for condition, magnitude, replicate in cases:
         sample_seed = noise_seed(seed, step, magnitude, replicate, noise_root) if replicate >= 0 else None
         guidance = construct_guidance(mdp, exact_q, condition, magnitude, sample_seed=sample_seed)
-        metrics = evaluate_candidate(mdp, logits, exact_q, state, guidance, cfg)
+        metrics = (oracle if condition == "oracle" else
+                   evaluate_candidate(mdp, logits, exact_q, state, guidance, cfg, **baseline))
         rows.append({
             "seed": seed, "step": step, "state": state,
-            "training_method": "qac_full", "method": "qac_full",
             "condition": condition, "magnitude": magnitude,
             "replicate": replicate, "noise_seed": "" if sample_seed is None else f"0x{sample_seed:016x}",
             "local_gap_scale": scale,
@@ -144,7 +142,8 @@ def run_experiment(out_dir: Path, cfg: RunConfig, seeds: list[int], *, noise_roo
         "experiment": "002-controlled-critic-error", "environment": "branching_mdp_v1",
         "run_config": asdict(cfg), "methods": ["qac_full"], "seeds": seeds,
         "noise_multipliers": NOISE_MULTIPLIERS, "noise_replicates": NOISE_REPLICATES,
-        "additive_biases": ADDITIVE_BIASES, "noise_root": noise_root,
+        "additive_bias": ADDITIVE_BIAS, "noise_root": noise_root,
+        "protocol": "single baseline; local candidate diagnostics; no stage summaries",
         "gap_scale": "max(RMS unordered pairwise action-value gaps at each state, 1e-6)",
         "gap_floor": GAP_FLOOR, "ranking_gap_tolerance": 1e-6,
         "gain_zero_tolerance": GAIN_ZERO_TOLERANCE,
@@ -163,7 +162,8 @@ def run_experiment(out_dir: Path, cfg: RunConfig, seeds: list[int], *, noise_roo
             rows = checkpoint_candidates(mdp, logits, state, run_seed, step, cfg, noise_root=noise_root)
             candidates.extend({**provenance, **row} for row in rows)
 
-        history, _ = train(mdp, "qac_full", seed, cfg, checkpoint_callback=capture)
+        history, _ = train(mdp, "qac_full", seed, cfg, checkpoint_callback=capture,
+                           measure_counterfactuals=False)
         states = {step: state for run_seed, step, state, _, _ in snapshots if run_seed == seed}
         checkpoints.extend({**provenance, **row, "state": states[row["step"]]} for row in history)
         print(f"qac_full seed={seed} checkpoints={len(history)} J(end)={history[-1]['expected_return']:.6f}")
