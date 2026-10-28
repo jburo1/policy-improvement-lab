@@ -1,8 +1,10 @@
 """Tabular online actor-critic and QAC on a small, exactly evaluable MDP."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .diagnostics import counterfactual_updates, critic_quality
 from .mdp import FiniteMDP
@@ -24,13 +26,18 @@ class RunConfig:
             raise ValueError("Learning rates and KL limit must be positive")
 
 
-def train(mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig) -> tuple[list[dict], list[dict]]:
+def train(
+    mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig, *,
+    checkpoint_callback: Callable[[int, NDArray, NDArray, int], None] | None = None,
+) -> tuple[list[dict], list[dict]]:
     """Run one seeded learner; return checkpoint and counterfactual records.
 
     * Online actor-critic (A2C-style): one-step TD with a tabular V critic.
     * QAC: on-policy one-step Expected SARSA with a tabular Q critic.
     * Each actor update changes only the visited state's logit row.
     * Reference Q^pi is used for analysis, never for actual learning.
+    * Optional checkpoint observers receive (step, copied logits, copied Q,
+      next decision state), after that checkpoint's original diagnostics.
     """
     rng = np.random.default_rng(seed)
     diagnostic_rng = np.random.default_rng(np.random.SeedSequence([seed, 1]))
@@ -55,6 +62,9 @@ def train(mdp: FiniteMDP, method: Method, seed: int, cfg: RunConfig) -> tuple[li
                 training_method=method,
             ))
         trajectory_metrics.append(record)
+        if checkpoint_callback is not None:
+            # Observers own their copies and cannot mutate the learner's tables.
+            checkpoint_callback(step, logits.copy(), q_hat.copy(), state)
 
     checkpoint(0)
     for step in range(1, cfg.steps + 1):

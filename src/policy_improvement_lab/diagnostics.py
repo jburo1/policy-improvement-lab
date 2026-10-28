@@ -45,9 +45,13 @@ class CriticQuality:
 def critic_quality(
     mdp: FiniteMDP, predicted: NDArray[np.float64], true: NDArray[np.float64],
     gap_tolerance: float = 1e-6,
+    *, states: NDArray[np.int64] | None = None,
 ) -> CriticQuality:
-    """Uniform over decision states/actions; excludes near-tied *true* rankings."""
-    active = mdp.active_states
+    """Uniform over selected states/actions (default: all decision states).
+
+    Excludes near-tied *true* rankings.
+    """
+    active = mdp.active_states if states is None else states
     error = predicted[active] - true[active]
     rmse = float(np.sqrt(np.mean(error**2)))
     pair_total, pair_correct = 0, 0
