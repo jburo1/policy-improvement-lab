@@ -102,8 +102,59 @@ count. A single-seed SD is NaN in tables and has zero-width figure bands.
 
 ## Results
 
-The simplified protocol is implemented; its complete rerun and results will be
-recorded here after execution.
+The full rerun completed using seeds 0–9 and noise root 0: **50,000 training
+transitions, 510 frozen checkpoints, and 62,730 candidate updates**.
+
+- Run ID: `36cf1d33e55806bd`.
+- Source revision: `5d5abb2e7956383322a4427fde9302fafacd45bc` (clean checkout at execution).
+- Python / NumPy: 3.11.14 / 2.4.6.
+- Analysis validated the complete grid and pairings, producing 4,590 checkpoint
+  summary rows, 90 seed rows, and nine across-seed rows. All gradient cosines
+  are defined; every across-seed metric has ten contributing seeds.
+
+| Condition | Candidates | Harmful | Harmful frequency (%) | Mean ΔJ |
+|---|---:|---:|---:|---:|
+| Oracle / zero noise | 510 | 0 | 0.00 ± 0.00 | 2.58301e-04 ± 5.55524e-05 |
+| Additive bias +10 | 510 | 0 | 0.00 ± 0.00 | 2.58301e-04 ± 5.55524e-05 |
+| Reversed guidance | 510 | 510 | 100.00 ± 0.00 | -2.61842e-04 ± 5.65467e-05 |
+| Gaussian noise, m = 0.25 | 10,200 | 216 | 2.12 ± 1.24 | 2.57994e-04 ± 5.74965e-05 |
+| Gaussian noise, m = 0.5 | 10,200 | 1,255 | 12.30 ± 1.67 | 2.52866e-04 ± 5.30511e-05 |
+| Gaussian noise, m = 1 | 10,200 | 2,709 | 26.56 ± 2.06 | 2.70457e-04 ± 9.19004e-05 |
+| Gaussian noise, m = 2 | 10,200 | 3,867 | 37.91 ± 2.07 | 2.67687e-04 ± 9.55133e-05 |
+| Gaussian noise, m = 4 | 10,200 | 4,459 | 43.72 ± 1.86 | 2.17909e-04 ± 1.57951e-04 |
+| Gaussian noise, m = 8 | 10,200 | 4,748 | 46.55 ± 1.87 | 7.81098e-05 ± 2.38030e-04 |
+
+Every candidate not counted as harmful was beneficial; none were effectively
+zero. Each ± is sample SD across the ten seed means, not a confidence interval.
+Frequency SDs are in percentage points. Full precision and supporting local
+measurements remain in [summary.csv](analysis/summary.csv) and the raw records.
+
+![Harmful frequency and mean exact gain versus noise multiplier](analysis/noise_response.png)
+
+The zero-noise point reuses the oracle baseline. Bands show mean ± seed SD;
+individual outcomes determine harmful frequency even when mean gain is positive.
+
+![Exact gain versus local gradient alignment and realized KL](analysis/gradient_alignment_vs_improvement.png)
+
+Each scatter point is a checkpoint/condition/magnitude mean, averaging the 20
+noise draws where applicable. These descriptive means are not independent-run
+observations or inferential correlation tests; raw draws retain relationships
+that averaging can obscure.
+
+### Verification against the earlier run
+
+All 510 frozen policies, learned critics, checkpoint states, and training
+measurements match the earlier working-tree run `4f40ac4c886bef49` exactly.
+All 62,730 retained candidate rows match its shared measurements exactly,
+including noise seeds, local diagnostics, gains, outcomes, and oracle pairing.
+The reduced grid removes 11,220 redundant baseline/control rows. The earlier
+README and outputs were preserved locally under ignored
+`artifacts/002-controlled-critic-error/before-simplification/`.
+
+The full test suite passed (72 tests), as did Ruff. Tests directly check bias
+cancellation, reversed gradients, local/global gain consistency, undefined
+metrics, candidate and training isolation, hierarchical weighting, grid/pairing
+validation, snapshot reconstruction, and figure generation.
 
 ## Interpretation
 

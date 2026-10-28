@@ -19,7 +19,7 @@ Third: Investigate whether we can design actor updates that are more robust to t
 | Experiment | Status | Scope |
 | --- | --- | --- |
 | [001: Critic reliability](experiments/001-critic-reliability/README.md) | Completed | Tabular full-action QAC on one finite MDP; paired learned/exact critic diagnostics across 10 seeds |
-| [002: Controlled critic error](experiments/002-controlled-critic-error/README.md) | Ready to run | Frozen-checkpoint QAC updates under oracle, additive-bias, Gaussian-noise, and reversed critic guidance |
+| [002: Controlled critic error](experiments/002-controlled-critic-error/README.md) | Completed | Frozen-checkpoint QAC noise response with oracle, additive-bias, and reversed-guidance controls |
 
 
 ## Setup and reprod

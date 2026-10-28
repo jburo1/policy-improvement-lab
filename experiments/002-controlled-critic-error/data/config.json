@@ -1,0 +1,60 @@
+{
+  "experiment": "002-controlled-critic-error",
+  "environment": "branching_mdp_v1",
+  "run_config": {
+    "steps": 5000,
+    "eval_every": 100,
+    "actor_lr": 0.2,
+    "critic_lr": 0.12,
+    "kl_limit": 0.002
+  },
+  "methods": [
+    "qac_full"
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "noise_multipliers": [
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    4.0,
+    8.0
+  ],
+  "noise_replicates": 20,
+  "additive_bias": 10.0,
+  "noise_root": 0,
+  "protocol": "single baseline; local candidate diagnostics; no stage summaries",
+  "gap_scale": "max(RMS unordered pairwise action-value gaps at each state, 1e-6)",
+  "gap_floor": 1e-06,
+  "ranking_gap_tolerance": 1e-06,
+  "gain_zero_tolerance": 1e-12,
+  "checkpoint_timing": "after completed transition updates; state is the next decision state",
+  "source_revision": "5d5abb2e7956383322a4427fde9302fafacd45bc",
+  "source_dirty": false,
+  "source_sha256": {
+    "src/policy_improvement_lab/__init__.py": "1a0d0e3896806e78d8e00606ab2b33ea59c7f52c47f649c9d91b80171952afe3",
+    "src/policy_improvement_lab/__main__.py": "3129adff95e0f38b87ab34cddfc27082c7892bcaec267ff5d40f160fdf55b44a",
+    "src/policy_improvement_lab/cli.py": "2ed4aac289cac20080b303a0ceadf480129947736d43b9fe1e5adae39ab2e19a",
+    "src/policy_improvement_lab/controlled_error.py": "f21aa7645c34db680d248773431b80ff49ab9124a2405b6a60df6215b57f5fb7",
+    "src/policy_improvement_lab/controlled_error_plot.py": "87f4250b6173142b2de08c14d1c09d47a1b2b4cd2817c80474ec05eb12afc28b",
+    "src/policy_improvement_lab/diagnostics.py": "55119b5a3c1d4f4aa3dfe9941b54a67fe914a414cf07e038978833efc99945c0",
+    "src/policy_improvement_lab/mdp.py": "3c77f4ea8ae653089eab5426a9943739a6e973b0b1c6c573865ebc2938d27f81",
+    "src/policy_improvement_lab/operators.py": "f69aec1bba52889560435f283f665c37cc281af58f61b7b95ae97d360c2def00",
+    "src/policy_improvement_lab/plot.py": "b7c731aa53f9d43a3fabcdb50b1500c9cdb574372413dd0ec68523b24a8cbcde",
+    "src/policy_improvement_lab/training.py": "b5038e93113ac26678fda792e7b28dde7322b8f066e385f886692c3628d35a91"
+  },
+  "numpy_version": "2.4.6",
+  "python_version": "3.11.14",
+  "run_id": "36cf1d33e55806bd"
+}
